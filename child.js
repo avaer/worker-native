@@ -4,7 +4,7 @@ const fs = require('fs');
 const vm = require('vm');
 const {Worker, workerData, parentPort} = require('worker_threads');
 
-// latch parent VmOne
+// latch parent WorkerNative
 
 const vmOne = (() => {
   const exports = {};
@@ -13,7 +13,7 @@ const vmOne = (() => {
   childVmOne.initChild(workerData.initFunctionAddress, exports);
   delete require.cache[childVmOneSoPath]; // cannot be reused
 
-  return exports.VmOne;
+  return exports.WorkerNative;
 })();
 const v = vmOne.fromArray(workerData.array);
 
