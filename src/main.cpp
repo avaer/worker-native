@@ -32,7 +32,7 @@ std::deque<std::pair<int, std::string>> asyncQueue;
 std::mutex asyncMutex;
 std::map<std::string, uintptr_t> nativeRequires;
 
-class VmOne : public ObjectWrap {
+class WorkerNative : public ObjectWrap {
 public:
   static Handle<Object> Initialize();
 // protected:
@@ -53,24 +53,24 @@ public:
 
   static bool Dlclose(const char *soPath);
   
-  VmOne(VmOne *ovmo = nullptr);
-  ~VmOne();
+  WorkerNative(WorkerNative *ovmo = nullptr);
+  ~WorkerNative();
 
 // protected:
   std::string result;
   uv_sem_t *lockRequestSem;
   uv_sem_t *lockResponseSem;
   uv_sem_t *requestSem;
-  VmOne *oldVmOne;
+  WorkerNative *oldWorkerNative;
 };
 
-Handle<Object> VmOne::Initialize() {
+Handle<Object> WorkerNative::Initialize() {
   Nan::EscapableHandleScope scope;
 
   // constructor
   Local<FunctionTemplate> ctor = Nan::New<FunctionTemplate>(New);
   ctor->InstanceTemplate()->SetInternalFieldCount(1);
-  ctor->SetClassName(JS_STR("VmOne"));
+  ctor->SetClassName(JS_STR("WorkerNative"));
 
   // prototype
   Local<ObjectTemplate> proto = ctor->PrototypeTemplate();
@@ -99,27 +99,27 @@ Handle<Object> VmOne::Initialize() {
   return scope.Escape(ctorFn);
 }
 
-NAN_METHOD(VmOne::New) {
+NAN_METHOD(WorkerNative::New) {
   Local<Object> vmOneObj = Local<Object>::Cast(info.This());
 
-  VmOne *oldVmOne;
+  WorkerNative *oldWorkerNative;
   if (info[0]->IsArray()) {
     Local<Array> array = Local<Array>::Cast(info[0]);
     uint32_t a = array->Get(0)->Uint32Value();
     uint32_t b = array->Get(1)->Uint32Value();
     uintptr_t c = ((uintptr_t)a << 32) | (uintptr_t)b;
-    oldVmOne = reinterpret_cast<VmOne *>(c);
+    oldWorkerNative = reinterpret_cast<WorkerNative *>(c);
   } else {
-    oldVmOne = nullptr;
+    oldWorkerNative = nullptr;
   }
 
-  VmOne *vmOne = oldVmOne ? new VmOne(oldVmOne) : new VmOne();
+  WorkerNative *vmOne = oldWorkerNative ? new WorkerNative(oldWorkerNative) : new WorkerNative();
   vmOne->Wrap(vmOneObj);
 
   info.GetReturnValue().Set(vmOneObj);
 }
 
-NAN_METHOD(VmOne::FromArray) {
+NAN_METHOD(WorkerNative::FromArray) {
   Local<Array> array = Local<Array>::Cast(info[0]);
 
   Local<Function> vmOneConstructor = Local<Function>::Cast(info.This());
@@ -131,8 +131,8 @@ NAN_METHOD(VmOne::FromArray) {
   info.GetReturnValue().Set(vmOneObj);
 }
 
-NAN_METHOD(VmOne::ToArray) {
-  VmOne *vmOne = ObjectWrap::Unwrap<VmOne>(info.This());
+NAN_METHOD(WorkerNative::ToArray) {
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
 
   Local<Array> array = Nan::New<Array>(2);
   array->Set(0, Nan::New<Integer>((uint32_t)((uintptr_t)vmOne >> 32)));
@@ -141,7 +141,7 @@ NAN_METHOD(VmOne::ToArray) {
   info.GetReturnValue().Set(array);
 }
 
-bool VmOne::Dlclose(const char *soPath) {
+bool WorkerNative::Dlclose(const char *soPath) {
 #ifndef _WIN32
   void *handle = dlopen(soPath, RTLD_LAZY);
 
@@ -167,7 +167,7 @@ bool VmOne::Dlclose(const char *soPath) {
 #endif
 }
 
-NAN_METHOD(VmOne::Dlclose) {
+NAN_METHOD(WorkerNative::Dlclose) {
   if (info[0]->IsString()) {
     Local<String> soPathString = Local<String>::Cast(info[0]);
     String::Utf8Value soPathUtf8Value(soPathString);
@@ -176,14 +176,14 @@ NAN_METHOD(VmOne::Dlclose) {
     if (Dlclose(soPath)) {
       // nothing
     } else {
-      Nan::ThrowError("VmOne::Dlclose: failed to open handle to close");
+      Nan::ThrowError("WorkerNative::Dlclose: failed to open handle to close");
     }
   } else {
-    Nan::ThrowError("VmOne::Dlclose: invalid arguments");
+    Nan::ThrowError("WorkerNative::Dlclose: invalid arguments");
   }
 }
 
-NAN_METHOD(VmOne::RequireNative) {
+NAN_METHOD(WorkerNative::RequireNative) {
   Local<String> requireNameValue = info[0]->ToString();
   String::Utf8Value requireNameUtf8(requireNameValue);
   std::string requireName(*requireNameUtf8, requireNameUtf8.length());
@@ -201,7 +201,7 @@ NAN_METHOD(VmOne::RequireNative) {
   }
 }
 
-NAN_METHOD(VmOne::SetNativeRequire) {
+NAN_METHOD(WorkerNative::SetNativeRequire) {
   if (info[0]->IsString() && info[1]->IsArray()) {
     Local<String> requireNameValue = info[0]->ToString();
     String::Utf8Value requireNameUtf8(requireNameValue);
@@ -220,7 +220,7 @@ NAN_METHOD(VmOne::SetNativeRequire) {
   }
 }
 
-VmOne::VmOne(VmOne *ovmo) {
+WorkerNative::WorkerNative(WorkerNative *ovmo) {
   if (!ovmo) {
     lockRequestSem = new uv_sem_t();
     uv_sem_init(lockRequestSem, 0);
@@ -241,12 +241,12 @@ VmOne::VmOne(VmOne *ovmo) {
     lockRequestSem = ovmo->lockRequestSem;
     lockResponseSem = ovmo->lockResponseSem;
     requestSem = ovmo->requestSem;
-    oldVmOne = ovmo;
+    oldWorkerNative = ovmo;
   }
 }
 
-VmOne::~VmOne() {
-  if (!oldVmOne) {
+WorkerNative::~WorkerNative() {
+  if (!oldWorkerNative) {
     uv_sem_destroy(lockRequestSem);
     delete lockRequestSem;
     uv_sem_destroy(lockResponseSem);
@@ -256,34 +256,34 @@ VmOne::~VmOne() {
   }
 }
 
-/* NAN_METHOD(VmOne::PushGlobal) {
-  VmOne *vmOne = ObjectWrap::Unwrap<VmOne>(info.This());
-  vmOne->oldVmOne->result.Reset(Isolate::GetCurrent()->GetCurrentContext()->Global());
+/* NAN_METHOD(WorkerNative::PushGlobal) {
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
+  vmOne->oldWorkerNative->result.Reset(Isolate::GetCurrent()->GetCurrentContext()->Global());
 
   uv_sem_post(vmOne->lockRequestSem);
   uv_sem_wait(vmOne->lockResponseSem);
 
-  vmOne->oldVmOne->result.Reset();
+  vmOne->oldWorkerNative->result.Reset();
 } */
 
-NAN_METHOD(VmOne::PushResult) {
+NAN_METHOD(WorkerNative::PushResult) {
   if (info[0]->IsString()) {
-    VmOne *vmOne = ObjectWrap::Unwrap<VmOne>(info.This());
+    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
     Local<String> stringValue = Local<String>::Cast(info[0]);
     String::Utf8Value utf8Value(stringValue);
-    vmOne->oldVmOne->result = std::string(*utf8Value, utf8Value.length());
+    vmOne->oldWorkerNative->result = std::string(*utf8Value, utf8Value.length());
 
     uv_sem_post(vmOne->lockRequestSem);
     uv_sem_wait(vmOne->lockResponseSem);
 
-    vmOne->oldVmOne->result.clear();
+    vmOne->oldWorkerNative->result.clear();
   } else {
-    Nan::ThrowError("VmOne::PushResult: invalid arguments");
+    Nan::ThrowError("WorkerNative::PushResult: invalid arguments");
   }
 }
 
-NAN_METHOD(VmOne::PopResult) {
-  VmOne *vmOne = ObjectWrap::Unwrap<VmOne>(info.This());
+NAN_METHOD(WorkerNative::PopResult) {
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
 
   uv_sem_wait(vmOne->lockRequestSem);
   Local<String> result = JS_STR(vmOne->result);
@@ -292,7 +292,7 @@ NAN_METHOD(VmOne::PopResult) {
   info.GetReturnValue().Set(result);
 }
 
-NAN_METHOD(VmOne::QueueAsyncRequest) {
+NAN_METHOD(WorkerNative::QueueAsyncRequest) {
   if (info[0]->IsFunction()) {
     Local<Function> localFn = Local<Function>::Cast(info[0]);
 
@@ -305,11 +305,11 @@ NAN_METHOD(VmOne::QueueAsyncRequest) {
 
     info.GetReturnValue().Set(JS_INT(requestKey));
   } else {
-    Nan::ThrowError("VmOne::QueueAsyncRequest: invalid arguments");
+    Nan::ThrowError("WorkerNative::QueueAsyncRequest: invalid arguments");
   }
 }
 
-NAN_METHOD(VmOne::QueueAsyncResponse) {
+NAN_METHOD(WorkerNative::QueueAsyncResponse) {
   if (info[0]->IsNumber() && info[1]->IsString()) {
     int requestKey = info[0]->Int32Value();
     String::Utf8Value utf8Value(info[1]);
@@ -322,7 +322,7 @@ NAN_METHOD(VmOne::QueueAsyncResponse) {
 
     uv_async_send(&async);
   } else {
-    Nan::ThrowError("VmOne::QueueAsyncResponse: invalid arguments");
+    Nan::ThrowError("WorkerNative::QueueAsyncResponse: invalid arguments");
   }
 }
 
@@ -341,7 +341,7 @@ void RunInMainThread(uv_async_t *handle) {
         Nan::HandleScope scope;
 
         Local<Object> asyncObj = Nan::New<Object>();
-        AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "VmOne::RunInMainThread");
+        AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "WorkerNative::RunInMainThread");
 
         Nan::Persistent<Function> &fn = asyncFns[requestKey];
         Local<Function> localFn = Nan::New(fn);
@@ -358,8 +358,8 @@ void RunInMainThread(uv_async_t *handle) {
   }
 }
 
-/* NAN_METHOD(VmOne::GetGlobal) {
-  VmOne *vmOne = ObjectWrap::Unwrap<VmOne>(info.This());
+/* NAN_METHOD(WorkerNative::GetGlobal) {
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
   Local<Function> cb = Local<Function>::Cast(info[0]);
 
   {
@@ -388,18 +388,18 @@ void RunInMainThread(uv_async_t *handle) {
   uv_sem_post(vmOne->lockResponseSem);
 } */
 
-NAN_METHOD(VmOne::Request) {
-  VmOne *vmOne = ObjectWrap::Unwrap<VmOne>(info.This());
+NAN_METHOD(WorkerNative::Request) {
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
   uv_sem_wait(vmOne->requestSem);
 }
 
-NAN_METHOD(VmOne::Respond) {
-  VmOne *vmOne = ObjectWrap::Unwrap<VmOne>(info.This());
+NAN_METHOD(WorkerNative::Respond) {
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
   uv_sem_post(vmOne->requestSem);
 }
 
 void Init(Handle<Object> exports) {
-  exports->Set(JS_STR("VmOne"), VmOne::Initialize());
+  exports->Set(JS_STR("WorkerNative"), WorkerNative::Initialize());
 }
 
 void RootInit(Handle<Object> exports) {
