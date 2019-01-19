@@ -26,52 +26,68 @@ EventEmitter.call(global);
 
 global.postMessage = (m, transferList) => parentPort.postMessage(m, transferList);
 global.requireNative = vmOne.requireNative;
-global.importScripts = (() => {
-  function getScript(url) {
-    let match;
-    if (match = url.match(/^data:.+?(;base64)?,(.*)$/)) {
-      if (match[1]) {
-        return Buffer.from(match[2], 'base64').toString('utf8');
-      } else {
-        return match[2];
-      }
-    } else if (match = url.match(/^file:\/\/(.*)$/)) {
-      return fs.readFileSync(match[1], 'utf8');
-    } else {
-      const sab = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT*2 + 5 * 1024 * 1024);
-      const int32Array = new Int32Array(sab);
-      const worker = new Worker(path.join(__dirname, 'request.js'), {
-        workerData: {
-          url,
-          int32Array,
-        },
-      });
-      worker.on('error', err => {
-        console.warn(err.stack);
-      });
-      Atomics.wait(int32Array, 0, 0);
-      const status = new Uint32Array(sab, 0, 1)[0];
-      const length = new Uint32Array(sab, Int32Array.BYTES_PER_ELEMENT, 1)[0];
-      const result = Buffer.from(sab, Int32Array.BYTES_PER_ELEMENT*2, length).toString('utf8');
-      if (status === 1) {
-        return result;
-      } else {
-        throw new Error(`fetch ${url} failed (${JSON.stringify(status)}): ${result}`);
-      }
-    }
-  }
-  function importScripts() {
-    for (let i = 0; i < arguments.length; i++) {
-      const importScriptPath = arguments[i];
 
-      const importScriptSource = getScript(importScriptPath);
-      vm.runInThisContext(importScriptSource, global, {
-        filename: /^https?:/.test(importScriptPath) ? importScriptPath : 'data-url://',
-      });
+let baseUrl = '';
+function setBaseUrl(newBaseUrl) {
+  baseUrl = newBaseUrl;
+}
+global.setBaseUrl = setBaseUrl;
+
+const _normalizeUrl = src => {
+  if (!/^(?:data|blob):/.test(src)) {
+    const match = baseUrl.match(/^(file:\/\/)(.*)$/);
+    if (match) {
+      return match[1] + path.join(match[2], src);
+    } else {
+      return new URL(src, baseUrl).href;
+    }
+  } else {
+    return src;
+  }
+};
+function getScript(url) {
+  let match;
+  if (match = url.match(/^data:.+?(;base64)?,(.*)$/)) {
+    if (match[1]) {
+      return Buffer.from(match[2], 'base64').toString('utf8');
+    } else {
+      return match[2];
+    }
+  } else if (match = url.match(/^file:\/\/(.*)$/)) {
+    return fs.readFileSync(match[1], 'utf8');
+  } else {
+    const sab = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT*2 + 5 * 1024 * 1024);
+    const int32Array = new Int32Array(sab);
+    const worker = new Worker(path.join(__dirname, 'request.js'), {
+      workerData: {
+        url: _normalizeUrl(url),
+        int32Array,
+      },
+    });
+    worker.on('error', err => {
+      console.warn(err.stack);
+    });
+    Atomics.wait(int32Array, 0, 0);
+    const status = new Uint32Array(sab, 0, 1)[0];
+    const length = new Uint32Array(sab, Int32Array.BYTES_PER_ELEMENT, 1)[0];
+    const result = Buffer.from(sab, Int32Array.BYTES_PER_ELEMENT*2, length).toString('utf8');
+    if (status === 1) {
+      return result;
+    } else {
+      throw new Error(`fetch ${url} failed (${JSON.stringify(status)}): ${result}`);
     }
   }
-  return importScripts;
-})();
+}
+function importScripts() {
+  for (let i = 0; i < arguments.length; i++) {
+    const importScriptPath = arguments[i];
+    const importScriptSource = getScript(importScriptPath);
+    vm.runInThisContext(importScriptSource, global, {
+      filename: /^https?:/.test(importScriptPath) ? importScriptPath : 'data-url://',
+    });
+  }
+}
+global.importScripts = importScripts;
 
 parentPort.on('message', m => {
   switch (m.method) {
@@ -128,7 +144,3 @@ if (workerData.args) {
 if (workerData.initModule) {
   require(workerData.initModule);
 }
-
-/* setInterval(() => {
-  console.log('child interval');
-}, 200); */

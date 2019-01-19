@@ -33,7 +33,7 @@ class Vm extends EventEmitter {
       this.emit('message', m);
     });
     worker.on('error', err => {
-      console.warn(err.stack);
+      this.emit('error', err);
     });
     instance.request();
     nativeVmOne.dlclose(vmOne2SoPath); // so we can re-require the module from a different child
@@ -81,6 +81,20 @@ class Vm extends EventEmitter {
       method: 'postMessage',
       message,
     }, transferList);
+  }
+
+  get onmessage() {
+    return this.listeners('message')[0];
+  }
+  set onmessage(onmessage) {
+    this.on('message', onmessage);
+  }
+
+  get onerror() {
+    return this.listeners('error')[0];
+  }
+  set onerror(onerror) {
+    this.on('error', onerror);
   }
 }
 

@@ -7,10 +7,10 @@ const {buffer: sab} = int32Array;
 const lengthArray = new Uint32Array(sab, Int32Array.BYTES_PER_ELEMENT, 1);
 const resultArray = new Uint8Array(sab, Int32Array.BYTES_PER_ELEMENT*2);
 
-(async () => {
-  const res = await new Promise((accept, reject) => {
-    const req = (/^https:/.test(url) ? https : http).request(url);
-    req.on('response', res => {
+new Promise((accept, reject) => {
+  const req = (/^https:/.test(url) ? https : http).request(url);
+  req.on('response', res => {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
       const bs = [];
       res.on('data', d => {
         bs.push(d);
@@ -19,16 +19,13 @@ const resultArray = new Uint8Array(sab, Int32Array.BYTES_PER_ELEMENT*2);
         accept(Buffer.concat(bs));
       });
       res.on('error', reject);
-    });
-    req.on('error', reject);
-    req.end();
+    } else {
+      reject(new Error(`request got invalid status code: ${res.statusCode}`));
+    }
   });
-  if (res.status >= 200 && res.status < 300) {
-    return await res.text();
-  } else {
-    throw new Error('request got invalid status code: ' + res.status);
-  }
-})()
+  req.on('error', reject);
+  req.end();
+})
   .then(result => {
     const s = result + '';
     const b = Buffer.from(s, 'utf8');
