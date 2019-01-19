@@ -1,7 +1,7 @@
 {
   'targets': [
     {
-      'target_name': 'vm_one',
+      'target_name': 'worker_native',
       'sources': [
         'src/main.cpp',
       ],
@@ -16,7 +16,7 @@
       ],
     },
     {
-      'target_name': 'vm_one2',
+      'target_name': 'worker_native2',
       'sources': [
         'src/child.cpp',
       ],

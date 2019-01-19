@@ -8,7 +8,7 @@ const {Worker, workerData, parentPort} = require('worker_threads');
 
 const vmOne = (() => {
   const exports = {};
-  const childVmOneSoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'vm_one2.node'));
+  const childVmOneSoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
   const childVmOne = require(childVmOneSoPath);
   childVmOne.initChild(workerData.initFunctionAddress, exports);
   delete require.cache[childVmOneSoPath]; // cannot be reused

@@ -1,8 +1,8 @@
 const path = require('path');
 const {EventEmitter} = require('events');
 const {Worker} = require('worker_threads');
-const {VmOne: nativeVmOne} = require(path.join(__dirname, 'build', 'Release', 'vm_one.node'));
-const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'vm_one2.node'));
+const {VmOne: nativeVmOne} = require(path.join(__dirname, 'build', 'Release', 'worker_native.node'));
+const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
 const childJsPath = path.join(__dirname, 'child.js');
 
 /* let compiling = false;
