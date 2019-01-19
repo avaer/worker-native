@@ -414,7 +414,7 @@ void RootInit(Handle<Object> exports) {
 NODE_MODULE(NODE_GYP_MODULE_NAME, workernative::RootInit)
 #else
 extern "C" {
-  void node_register_module_vm_one(Local<Object> exports, Local<Value> module, Local<Context> context) {
+  void node_register_module_worker_native(Local<Object> exports, Local<Value> module, Local<Context> context) {
     workernative::RootInit(exports);
   }
 }
