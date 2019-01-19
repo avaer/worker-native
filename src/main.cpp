@@ -21,7 +21,7 @@ using namespace node;
 #define JS_FLOAT(val) Nan::New<v8::Number>(val)
 #define JS_BOOL(val) Nan::New<v8::Boolean>(val)
 
-namespace vmone {
+namespace workernative {
 
 void Init(Handle<Object> exports);
 void RunInMainThread(uv_async_t *handle);
@@ -90,7 +90,7 @@ Handle<Object> WorkerNative::Initialize() {
   ctorFn->Set(JS_STR("requireNative"), Nan::New<Function>(RequireNative));
   ctorFn->Set(JS_STR("setNativeRequire"), Nan::New<Function>(SetNativeRequire));
 
-  uintptr_t initFunctionAddress = (uintptr_t)vmone::Init;
+  uintptr_t initFunctionAddress = (uintptr_t)workernative::Init;
   Local<Array> initFunctionAddressArray = Nan::New<Array>(2);
   initFunctionAddressArray->Set(0, Nan::New<Integer>((uint32_t)(initFunctionAddress >> 32)));
   initFunctionAddressArray->Set(1, Nan::New<Integer>((uint32_t)(initFunctionAddress & 0xFFFFFFFF)));
@@ -411,11 +411,11 @@ void RootInit(Handle<Object> exports) {
 }
 
 #ifndef LUMIN
-NODE_MODULE(NODE_GYP_MODULE_NAME, vmone::RootInit)
+NODE_MODULE(NODE_GYP_MODULE_NAME, workernative::RootInit)
 #else
 extern "C" {
   void node_register_module_vm_one(Local<Object> exports, Local<Value> module, Local<Context> context) {
-    vmone::RootInit(exports);
+    workernative::RootInit(exports);
   }
 }
 #endif
