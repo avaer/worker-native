@@ -78,6 +78,14 @@ class Vm extends EventEmitter {
       }
     });
   }
+  runDetached(jsString, arg, transferList) {
+    jsString = jsString + '';
+    this.worker.postMessage({
+      method: 'runDetached',
+      jsString,
+      arg,
+    }, transferList);
+  }
   postMessage(message, transferList) {
     this.worker.postMessage({
       method: 'postMessage',

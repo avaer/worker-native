@@ -120,6 +120,15 @@ parentPort.on('message', m => {
       v.queueAsyncResponse(m.requestKey, result);
       break;
     }
+    case 'runDetached': {
+      try {
+        const fn = eval(`(function(arg) { ${m.jsString} })`);
+        fn(m.arg);
+      } catch(err) {
+        console.warn(err.stack);
+      }
+      break;
+    }
     case 'postMessage': {
       try {
         global.emit('message', m.message);
