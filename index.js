@@ -43,7 +43,6 @@ class Vm extends EventEmitter {
   }
 
   runSync(jsString, arg, transferList) {
-    jsString = jsString + '';
     this.worker.postMessage({
       method: 'runSync',
       jsString,
@@ -52,7 +51,6 @@ class Vm extends EventEmitter {
     return JSON.parse(this.instance.popResult());
   }
   runAsync(jsString, arg, transferList) {
-    jsString = jsString + '';
     let accept = null;
     let done = false;
     let result;
@@ -79,7 +77,6 @@ class Vm extends EventEmitter {
     });
   }
   runDetached(jsString, arg, transferList) {
-    jsString = jsString + '';
     this.worker.postMessage({
       method: 'runDetached',
       jsString,
