@@ -24,13 +24,28 @@ for (const k in EventEmitter.prototype) {
 }
 EventEmitter.call(global);
 
-global.postMessage = (m, transferList) => parentPort.postMessage(m, transferList);
+global.postMessage = (message, transferList) => parentPort.postMessage({
+  method: 'postMessage',
+  message,
+}, transferList);
 Object.defineProperty(global, 'onmessage', {
   get() {
     return this.listeners('message')[0];
   },
-  set() {
+  set(onmessage) {
     global.on('message', onmessage);
+  },
+});
+global.postInternalMessage = (message, transferList) => parentPort.postMessage({
+  method: 'postInternalMessage',
+  message,
+}, transferList);
+Object.defineProperty(global, 'oninternalmessage', {
+  get() {
+    return this.listeners('internalmessage')[0];
+  },
+  set(oninternalmessage) {
+    global.on('internalmessage', oninternalmessage);
   },
 });
 global.requireNative = vmOne.requireNative;

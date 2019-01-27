@@ -30,7 +30,16 @@ class Vm extends EventEmitter {
       },
     });
     worker.on('message', m => {
-      this.emit('message', m);
+      switch (m.method) {
+        case 'postMessage': {
+          this.emit('message', m);
+          break;
+        }
+        case 'postInternalMessage': {
+          this.emit('internalmessage', m);
+          break;
+        }
+      }
     });
     worker.on('error', err => {
       this.emit('error', err);
@@ -95,6 +104,13 @@ class Vm extends EventEmitter {
   }
   set onmessage(onmessage) {
     this.on('message', onmessage);
+  }
+
+  get oninternalmessage() {
+    return this.listeners('inteernalmessage')[0];
+  }
+  set oninternalmessage(oninternalmessage) {
+    this.on('internalmessage', oninternalmessage);
   }
 
   get onerror() {
