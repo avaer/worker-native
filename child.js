@@ -25,6 +25,14 @@ for (const k in EventEmitter.prototype) {
 EventEmitter.call(global);
 
 global.postMessage = (m, transferList) => parentPort.postMessage(m, transferList);
+Object.defineProperty(global, 'onmessage', {
+  get() {
+    return this.listeners('message')[0];
+  },
+  set() {
+    global.on('message', onmessage);
+  },
+});
 global.requireNative = vmOne.requireNative;
 
 let baseUrl = '';
