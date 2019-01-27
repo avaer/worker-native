@@ -235,9 +235,6 @@ WorkerNative::WorkerNative(WorkerNative *ovmo) {
     // ContextEmbedderIndex::kAllowWasmCodeGeneration = 34
     localContext->SetEmbedderData(34, Nan::New<Boolean>(true));
 
-    /* uv_async_t lol;
-    uv_async_init(uv_default_loop(), &lol, RunInMainThread); */
-
     lockRequestSem = ovmo->lockRequestSem;
     lockResponseSem = ovmo->lockResponseSem;
     requestSem = ovmo->requestSem;
