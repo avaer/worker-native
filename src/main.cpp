@@ -24,12 +24,26 @@ using namespace node;
 namespace workernative {
 
 void Init(Handle<Object> exports);
-void RunInMainThread(uv_async_t *handle);
+void RunInParentThread(uv_async_t *handle);
+void DeleteAsync(uv_handle_t *handle);
+class WorkerNative;
 
-uv_async_t async;
-std::map<int, Nan::Persistent<Function>> asyncFns;
-std::deque<std::pair<int, std::string>> asyncQueue;
-std::mutex asyncMutex;
+Local<Array> pointerToArray(void *ptr) {
+  uintptr_t n = (uintptr_t)ptr;
+  Local<Array> result = Nan::New<Array>(2);
+  result->Set(0, JS_NUM((uint32_t)(n >> 32)));
+  result->Set(1, JS_NUM((uint32_t)(n & 0xFFFFFFFF)));
+  return result;
+}
+
+void *arrayToPointer(Local<Array> array) {
+  uintptr_t n = ((uintptr_t)array->Get(0)->Uint32Value() << 32) | (uintptr_t)array->Get(1)->Uint32Value();
+  return (void *)n;
+}
+
+thread_local uv_loop_t *eventLoop = nullptr;
+std::map<uv_async_t *, WorkerNative *> asyncToWorkerParentMap;
+std::mutex asyncToWorkerParentMutex;
 std::map<std::string, uintptr_t> nativeRequires;
 
 class WorkerNative : public ObjectWrap {
@@ -61,6 +75,10 @@ public:
   uv_sem_t *lockRequestSem;
   uv_sem_t *lockResponseSem;
   uv_sem_t *requestSem;
+  uv_async_t *parentAsync;
+  std::map<int, Nan::Persistent<Function>> *parentAsyncFns;
+  std::deque<std::pair<int, std::string>> *parentAsyncQueue;
+  std::mutex *parentAsyncMutex;
   WorkerNative *oldWorkerNative;
 };
 
@@ -224,10 +242,25 @@ WorkerNative::WorkerNative(WorkerNative *ovmo) {
   if (!ovmo) {
     lockRequestSem = new uv_sem_t();
     uv_sem_init(lockRequestSem, 0);
+
     lockResponseSem = new uv_sem_t();
     uv_sem_init(lockResponseSem, 0);
+
     requestSem = new uv_sem_t();
     uv_sem_init(requestSem, 0);
+
+    parentAsync = new uv_async_t();
+    uv_loop_t *loop = eventLoop ? eventLoop : uv_default_loop();
+    uv_async_init(loop, parentAsync, RunInParentThread);
+    {
+      std::lock_guard<std::mutex> lock(asyncToWorkerParentMutex);
+
+      asyncToWorkerParentMap[parentAsync] = this;
+    }
+
+    parentAsyncFns = new std::map<int, Nan::Persistent<Function>>();
+    parentAsyncQueue = new std::deque<std::pair<int, std::string>>();
+    parentAsyncMutex = new std::mutex();
   } else {
     Local<Context> localContext = Isolate::GetCurrent()->GetCurrentContext();
 
@@ -238,6 +271,12 @@ WorkerNative::WorkerNative(WorkerNative *ovmo) {
     lockRequestSem = ovmo->lockRequestSem;
     lockResponseSem = ovmo->lockResponseSem;
     requestSem = ovmo->requestSem;
+
+    parentAsync = ovmo->parentAsync;
+    parentAsyncFns = ovmo->parentAsyncFns;
+    parentAsyncQueue = ovmo->parentAsyncQueue;
+    parentAsyncMutex = ovmo->parentAsyncMutex;
+
     oldWorkerNative = ovmo;
   }
 }
@@ -246,10 +285,23 @@ WorkerNative::~WorkerNative() {
   if (!oldWorkerNative) {
     uv_sem_destroy(lockRequestSem);
     delete lockRequestSem;
+
     uv_sem_destroy(lockResponseSem);
     delete lockResponseSem;
+
     uv_sem_destroy(requestSem);
     delete requestSem;
+
+    uv_close((uv_handle_t *)parentAsync, DeleteAsync);
+    {
+      std::lock_guard<std::mutex> lock(asyncToWorkerParentMutex);
+
+      asyncToWorkerParentMap.erase(parentAsync);
+    }
+
+    delete parentAsyncFns;
+    delete parentAsyncQueue;
+    delete parentAsyncMutex;
   }
 }
 
@@ -291,13 +343,14 @@ NAN_METHOD(WorkerNative::PopResult) {
 
 NAN_METHOD(WorkerNative::QueueAsyncRequest) {
   if (info[0]->IsFunction()) {
+    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
     Local<Function> localFn = Local<Function>::Cast(info[0]);
 
     int requestKey = rand();
     {
-      std::lock_guard<std::mutex> lock(asyncMutex);
+      std::lock_guard<std::mutex> lock(*(vmOne->parentAsyncMutex));
 
-      asyncFns.emplace(requestKey, localFn);
+      vmOne->parentAsyncFns->emplace(requestKey, localFn);
     }
 
     info.GetReturnValue().Set(JS_INT(requestKey));
@@ -308,29 +361,37 @@ NAN_METHOD(WorkerNative::QueueAsyncRequest) {
 
 NAN_METHOD(WorkerNative::QueueAsyncResponse) {
   if (info[0]->IsNumber() && info[1]->IsString()) {
+    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
     int requestKey = info[0]->Int32Value();
     String::Utf8Value utf8Value(info[1]);
 
     {
-      std::lock_guard<std::mutex> lock(asyncMutex);
+      std::lock_guard<std::mutex> lock(*(vmOne->parentAsyncMutex));
 
-      asyncQueue.emplace_back(requestKey, std::string(*utf8Value, utf8Value.length()));
+      vmOne->parentAsyncQueue->emplace_back(requestKey, std::string(*utf8Value, utf8Value.length()));
     }
 
-    uv_async_send(&async);
+    uv_async_send(vmOne->parentAsync);
   } else {
     Nan::ThrowError("WorkerNative::QueueAsyncResponse: invalid arguments");
   }
 }
 
 NAN_METHOD(nop) {}
-void RunInMainThread(uv_async_t *handle) {
+void RunInParentThread(uv_async_t *handle) {
   Nan::HandleScope scope;
 
+  WorkerNative *vmOne;
   {
-    std::lock_guard<std::mutex> lock(asyncMutex);
+    std::lock_guard<std::mutex> lock(asyncToWorkerParentMutex);
 
-    for (auto iter = asyncQueue.begin(); iter != asyncQueue.end(); iter++) {
+    vmOne = asyncToWorkerParentMap[(uv_async_t *)handle];
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(*(vmOne->parentAsyncMutex));
+
+    for (auto iter = vmOne->parentAsyncQueue->begin(); iter != vmOne->parentAsyncQueue->end(); iter++) {
       const int &requestKey = iter->first;
       const std::string &requestResult = iter->second;
 
@@ -338,9 +399,9 @@ void RunInMainThread(uv_async_t *handle) {
         Nan::HandleScope scope;
 
         Local<Object> asyncObj = Nan::New<Object>();
-        AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "WorkerNative::RunInMainThread");
+        AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "WorkerNative::RunInParentThread");
 
-        Nan::Persistent<Function> &fn = asyncFns[requestKey];
+        Nan::Persistent<Function> &fn = (*(vmOne->parentAsyncFns))[requestKey];
         Local<Function> localFn = Nan::New(fn);
 
         Local<Value> argv[] = {
@@ -349,10 +410,15 @@ void RunInMainThread(uv_async_t *handle) {
         asyncResource.MakeCallback(localFn, sizeof(argv)/sizeof(argv[0]), argv);
       }
 
-      asyncFns.erase(requestKey);
+      vmOne->parentAsyncFns->erase(requestKey);
     }
-    asyncQueue.clear();
+    vmOne->parentAsyncQueue->clear();
   }
+}
+
+void DeleteAsync(uv_handle_t *handle) {
+  uv_async_t *async = (uv_async_t *)handle;
+  delete async;
 }
 
 /* NAN_METHOD(WorkerNative::GetGlobal) {
@@ -395,13 +461,25 @@ NAN_METHOD(WorkerNative::Respond) {
   uv_sem_post(vmOne->requestSem);
 }
 
+NAN_METHOD(GetEventLoop) {
+  info.GetReturnValue().Set(pointerToArray(eventLoop));
+}
+
+NAN_METHOD(SetEventLoop) {
+  if (info[0]->IsArray()) {
+    eventLoop = (uv_loop_t *)arrayToPointer(Local<Array>::Cast(info[0]));
+  } else {
+    Nan::ThrowError("SetEventLoop: invalid arguments");
+  }
+}
+
 void Init(Handle<Object> exports) {
   exports->Set(JS_STR("WorkerNative"), WorkerNative::Initialize());
+  Nan::SetMethod(exports, "getEventLoop", GetEventLoop);
+  Nan::SetMethod(exports, "setEventLoop", SetEventLoop);
 }
 
 void RootInit(Handle<Object> exports) {
-  uv_async_init(uv_default_loop(), &async, RunInMainThread);
-
   Init(exports);
 }
 
