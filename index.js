@@ -59,6 +59,13 @@ class Vm extends EventEmitter {
     }, transferList);
     return JSON.parse(this.instance.popResult());
   }
+  runRepl(jsString, transferList) {
+    this.worker.postMessage({
+      method: 'runRepl',
+      jsString,
+    }, transferList);
+    return JSON.parse(this.instance.popResult());
+  }
   runAsync(jsString, arg, transferList) {
     let accept = null;
     let done = false;

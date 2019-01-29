@@ -118,12 +118,22 @@ parentPort.on('message', m => {
       v.pushResult(global);
       break;
     } */
-    case 'runSync': {
+    case 'runRepl': {
       let result;
       try {
         const fn = eval(`(function(arg) { ${m.jsString} })`);
         const resultValue = fn(m.arg);
-        result = JSON.stringify(resultValue !== undefined ? resultValue : null);
+        result = qJSON.stringify(resultValue !== undefined ? resultValue : null);
+      } catch(err) {
+        console.warn(err.stack);
+      }
+      v.pushResult(result);
+      break;
+    }
+    case 'runSync': {
+      let result;
+      try {
+        result = eval(m.jsString);
       } catch(err) {
         console.warn(err.stack);
       }
