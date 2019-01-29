@@ -127,7 +127,6 @@ parentPort.on('message', m => {
       } catch(err) {
         console.warn(err.stack);
       }
-      console.log('push', result);
       v.pushResult(result);
       break;
     }
