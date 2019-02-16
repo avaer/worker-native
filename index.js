@@ -79,44 +79,21 @@ class Vm extends EventEmitter {
     }
   }
   runAsync(jsString, arg, transferList) {
-    let accept, reject;
-    let result, err;
-    let done = false;
-    const requestKey = this.instance.queueAsyncRequest(s => {
-      const o = JSON.parse(s);
-      if (!o.err) {
-        if (accept) {
+    return new Promise((accept, reject) => {
+      const requestKey = this.instance.queueAsyncRequest(s => {
+        const o = JSON.parse(s);
+        if (!o.err) {
           accept(o.result);
         } else {
-          done = true;
-          result = o.result;
-        }
-      } else {
-        if (reject) {
           reject(o.err);
-        } else {
-          done = true;
-          err = o.err;
         }
-      }
-    });
-    this.worker.postMessage({
-      method: 'runAsync',
-      jsString,
-      arg,
-      requestKey,
-    }, transferList);
-    return new Promise((accept2, reject2) => {
-      if (done) {
-        if (!err) {
-          accept2(result);
-        } else {
-          reject2(err);
-        }
-      } else {
-        accept = accept2;
-        reject = reject2;
-      }
+      });
+      this.worker.postMessage({
+        method: 'runAsync',
+        jsString,
+        arg,
+        requestKey,
+      }, transferList);
     });
   }
   runDetached(jsString, arg, transferList) {
