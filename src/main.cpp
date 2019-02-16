@@ -400,12 +400,13 @@ void RunInParentThread(uv_async_t *handle) {
       const int &requestKey = localParentAsyncQueue[i].first;
       Nan::Persistent<Function> &fn = (*(vmOne->parentAsyncFns))[requestKey];
       localParentAsyncFns.push_back(Nan::New(fn));
+      fn.Reset();
       vmOne->parentAsyncFns->erase(requestKey);
     }
   }
 
   for (size_t i = 0; i < localParentAsyncQueue.size(); i++) {
-    Nan::HandleScope scope;
+    // Nan::HandleScope scope;
     
     Local<Function> &localFn = localParentAsyncFns[i];
     const std::string &requestResult = localParentAsyncQueue[i].second;
