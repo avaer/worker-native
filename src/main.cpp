@@ -316,19 +316,18 @@ WorkerNative::~WorkerNative() {
 } */
 
 NAN_METHOD(WorkerNative::PushResult) {
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
+  
   if (info[0]->IsString()) {
-    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
     Local<String> stringValue = Local<String>::Cast(info[0]);
     String::Utf8Value utf8Value(stringValue);
     vmOne->oldWorkerNative->result = std::string(*utf8Value, utf8Value.length());
-
-    uv_sem_post(vmOne->lockRequestSem);
-    uv_sem_wait(vmOne->lockResponseSem);
-
-    vmOne->oldWorkerNative->result.clear();
-  } else {
-    Nan::ThrowError("WorkerNative::PushResult: invalid arguments");
   }
+  
+  uv_sem_post(vmOne->lockRequestSem);
+  uv_sem_wait(vmOne->lockResponseSem);
+
+  vmOne->oldWorkerNative->result.clear();
 }
 
 NAN_METHOD(WorkerNative::PopResult) {

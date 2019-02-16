@@ -120,43 +120,47 @@ parentPort.on('message', m => {
       break;
     } */
     case 'runRepl': {
-      let result;
+      let result, err;
       try {
-        const fn = eval(`(function(arg) { ${m.jsString} })`);
-        const resultValue = fn(m.arg);
-        result = qJSON.stringify(resultValue !== undefined ? resultValue : null);
-      } catch(err) {
-        console.warn(err.stack);
+        result = eval(m.jsString);
+      } catch(e) {
+        err = e.stack;
       }
-      v.pushResult(result);
+      v.pushResult(JSON.stringify({result, err}));
       break;
     }
     case 'runSync': {
-      let result;
+      let result, err;
       try {
+        if (m.arg) {
+          window._ = m.arg;
+        }
         result = eval(m.jsString);
-      } catch(err) {
-        console.warn(err.stack);
+      } catch(e) {
+        err = e.stack;
       }
-      v.pushResult(result);
+      v.pushResult(JSON.stringify({result, err}));
       break;
     }
     case 'runAsync': {
-      let result;
+      let result, err;
       try {
-        const fn = eval(`(function(arg) { ${m.jsString} })`);
-        const resultValue = fn(m.arg);
-        result = JSON.stringify(resultValue !== undefined ? resultValue : null);
+        if (m.arg) {
+          window._ = m.arg;
+        }
+        result = eval(m.jsString);
       } catch(err) {
-        console.warn(err.stack);
+        err = e.stack;
       }
-      v.queueAsyncResponse(m.requestKey, result);
+      v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
       break;
     }
     case 'runDetached': {
       try {
-        const fn = eval(`(function(arg) { ${m.jsString} })`);
-        fn(m.arg);
+        if (m.arg) {
+          window._ = m.arg;
+        }
+        eval(m.jsString);
       } catch(err) {
         console.warn(err.stack);
       }

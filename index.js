@@ -57,25 +57,47 @@ class Vm extends EventEmitter {
       jsString,
       arg,
     }, transferList);
-    return JSON.parse(this.instance.popResult());
+    const {err, result} = JSON.parse(this.instance.popResult());
+    if (!err) {
+      return result;
+    } else {
+      throw new Error(err);
+    }
   }
   runRepl(jsString, transferList) {
+    console.log('post message 1');
     this.worker.postMessage({
       method: 'runRepl',
       jsString,
     }, transferList);
-    return JSON.parse(this.instance.popResult());
+    console.log('post message 2');
+    const {err, result} = JSON.parse(this.instance.popResult());
+    if (!err) {
+      return result;
+    } else {
+      throw new Error(err);
+    }
   }
   runAsync(jsString, arg, transferList) {
-    let accept = null;
+    let accept, reject;
+    let result, err;
     let done = false;
-    let result;
-    const requestKey = this.instance.queueAsyncRequest(r => {
-      if (accept) {
-        accept(r);
+    const requestKey = this.instance.queueAsyncRequest(s => {
+      const o = JSON.parse(s);
+      if (!o.err) {
+        if (accept) {
+          accept(o.result);
+        } else {
+          done = true;
+          result = o.result;
+        }
       } else {
-        done = true;
-        result = r;
+        if (reject) {
+          reject(o.err);
+        } else {
+          done = true;
+          err = o.err;
+        }
       }
     });
     this.worker.postMessage({
@@ -86,9 +108,14 @@ class Vm extends EventEmitter {
     }, transferList);
     return new Promise((accept2, reject2) => {
       if (done) {
-        accept2(result);
+        if (!err) {
+          accept2(result);
+        } else {
+          reject2(err);
+        }
       } else {
         accept = accept2;
+        reject = reject2;
       }
     });
   }
