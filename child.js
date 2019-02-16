@@ -2,6 +2,7 @@ const {EventEmitter} = require('events');
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
+const util = require('util');
 const {Worker, workerData, parentPort} = require('worker_threads');
 
 // latch parent WorkerNative
@@ -122,7 +123,7 @@ parentPort.on('message', m => {
     case 'runRepl': {
       let result, err;
       try {
-        result = eval(m.jsString);
+        result = util.inspect(eval(m.jsString));
       } catch(e) {
         err = e.stack;
       }
