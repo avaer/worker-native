@@ -65,12 +65,10 @@ class Vm extends EventEmitter {
     }
   }
   runRepl(jsString, transferList) {
-    console.log('post message 1');
     this.worker.postMessage({
       method: 'runRepl',
       jsString,
     }, transferList);
-    console.log('post message 2');
     const {err, result} = JSON.parse(this.instance.popResult());
     if (!err) {
       return result;
