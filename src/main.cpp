@@ -388,31 +388,36 @@ void RunInParentThread(uv_async_t *handle) {
     vmOne = asyncToWorkerParentMap[(uv_async_t *)handle];
   }
 
+  std::deque<std::pair<int, std::string>> localParentAsyncQueue;
+  std::vector<Local<Function>> localParentAsyncFns;
   {
     std::lock_guard<std::mutex> lock(*(vmOne->parentAsyncMutex));
 
-    for (auto iter = vmOne->parentAsyncQueue->begin(); iter != vmOne->parentAsyncQueue->end(); iter++) {
-      const int &requestKey = iter->first;
-      const std::string &requestResult = iter->second;
+    localParentAsyncQueue = std::move(*(vmOne->parentAsyncQueue));
+    vmOne->parentAsyncQueue->clear();
 
-      {
-        Nan::HandleScope scope;
-
-        Local<Object> asyncObj = Nan::New<Object>();
-        AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "WorkerNative::RunInParentThread");
-
-        Nan::Persistent<Function> &fn = (*(vmOne->parentAsyncFns))[requestKey];
-        Local<Function> localFn = Nan::New(fn);
-
-        Local<Value> argv[] = {
-          JS_STR(requestResult),
-        };
-        asyncResource.MakeCallback(localFn, sizeof(argv)/sizeof(argv[0]), argv);
-      }
-
+    localParentAsyncFns.reserve(localParentAsyncQueue.size());
+    for (size_t i = 0; i < localParentAsyncQueue.size(); i++) {
+      const int &requestKey = localParentAsyncQueue[i].first;
+      Nan::Persistent<Function> &fn = (*(vmOne->parentAsyncFns))[requestKey];
+      localParentAsyncFns.push_back(Nan::New(fn));
       vmOne->parentAsyncFns->erase(requestKey);
     }
-    vmOne->parentAsyncQueue->clear();
+  }
+
+  for (size_t i = 0; i < localParentAsyncQueue.size(); i++) {
+    Nan::HandleScope scope;
+    
+    Local<Function> &localFn = localParentAsyncFns[i];
+    const std::string &requestResult = localParentAsyncQueue[i].second;
+
+    Local<Object> asyncObj = Nan::New<Object>();
+    AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "WorkerNative::RunInParentThread");
+
+    Local<Value> argv[] = {
+      JS_STR(requestResult),
+    };
+    asyncResource.MakeCallback(localFn, sizeof(argv)/sizeof(argv[0]), argv);
   }
 }
 
