@@ -140,6 +140,7 @@ const vmOne = {
   fromArray(arg) {
     return new nativeVmOne(arg);
   },
+  dlclose: nativeVmOne.dlclose,
 }
 
 module.exports = vmOne;
