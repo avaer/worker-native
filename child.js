@@ -150,7 +150,7 @@ parentPort.on('message', m => {
           window._ = m.arg;
         }
         result = eval(m.jsString);
-      } catch(err) {
+      } catch(e) {
         err = e.stack;
       }
       v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
