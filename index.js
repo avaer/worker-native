@@ -134,6 +134,7 @@ const vmOne = {
   make(options = {}) {
     return new Vm(options);
   },
+  setEventLoop: nativeVmOne.setEventLoop,
   setNativeRequire: nativeVmOne.setNativeRequire,
   requireNative: nativeVmOne.requireNative,
   initFunctionAddress: nativeVmOne.initFunctionAddress,
