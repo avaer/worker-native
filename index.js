@@ -5,6 +5,10 @@ const {WorkerNative: nativeVmOne} = typeof requireNative === 'undefined' ? requi
 const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
 const childJsPath = path.join(__dirname, 'child.js');
 
+const eventLoopNative = require('event-loop-native');
+nativeVmOne.setEventLoop(eventLoopNative);
+nativeVmOne.dlclose(eventLoopNative.getDlibPath());
+
 /* let compiling = false;
 const make = () => new VmOne(e => {
   if (e === 'compilestart') {
@@ -44,7 +48,7 @@ class Vm extends EventEmitter {
     worker.on('error', err => {
       this.emit('error', err);
     });
-    instance.request();
+    instance.request(true);
     nativeVmOne.dlclose(vmOne2SoPath); // so we can re-require the module from a different child
 
     this.instance = instance;
@@ -57,7 +61,7 @@ class Vm extends EventEmitter {
       jsString,
       arg,
     }, transferList);
-    const {err, result} = JSON.parse(this.instance.popResult());
+    const {err, result} = JSON.parse(this.instance.popResult(true));
     if (!err) {
       return result;
     } else {
@@ -69,7 +73,7 @@ class Vm extends EventEmitter {
       method: 'runRepl',
       jsString,
     }, transferList);
-    const {err, result} = JSON.parse(this.instance.popResult());
+    const {err, result} = JSON.parse(this.instance.popResult(true));
     if (!err) {
       return result;
     } else {
@@ -78,7 +82,7 @@ class Vm extends EventEmitter {
   }
   runAsync(jsString, arg, transferList) {
     return new Promise((accept, reject) => {
-      const requestKey = this.instance.queueAsyncRequest(s => {
+      const requestKey = this.instance.queueAsyncRequest(true, s => {
         const o = JSON.parse(s);
         if (!o.err) {
           accept(o.result);
@@ -134,6 +138,7 @@ const vmOne = {
   make(options = {}) {
     return new Vm(options);
   },
+  getEventLoop: nativeVmOne.getEventLoop,
   setEventLoop: nativeVmOne.setEventLoop,
   setNativeRequire: nativeVmOne.setNativeRequire,
   requireNative: nativeVmOne.requireNative,

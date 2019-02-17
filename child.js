@@ -17,6 +17,11 @@ const vmOne = (() => {
 
   return exports.WorkerNative;
 })();
+
+const eventLoopNative = require('event-loop-native');
+vmOne.setEventLoop(eventLoopNative);
+vmOne.dlclose(eventLoopNative.getDlibPath());
+
 const v = vmOne.fromArray(workerData.array);
 
 // global initialization
@@ -117,7 +122,7 @@ global.importScripts = importScripts;
 parentPort.on('message', m => {
   switch (m.method) {
     /* case 'lock': {
-      v.pushResult(global);
+      v.pushResult(true, global);
       break;
     } */
     case 'runRepl': {
@@ -127,7 +132,7 @@ parentPort.on('message', m => {
       } catch(e) {
         err = e.stack;
       }
-      v.pushResult(JSON.stringify({result, err}));
+      v.pushResult(true, JSON.stringify({result, err}));
       break;
     }
     case 'runSync': {
@@ -140,7 +145,7 @@ parentPort.on('message', m => {
       } catch(e) {
         err = e.stack;
       }
-      v.pushResult(JSON.stringify({result, err}));
+      v.pushResult(true, JSON.stringify({result, err}));
       break;
     }
     case 'runAsync': {
@@ -153,7 +158,7 @@ parentPort.on('message', m => {
       } catch(e) {
         err = e.stack;
       }
-      v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
+      v.queueAsyncResponse(true, m.requestKey, JSON.stringify({result, err}));
       break;
     }
     case 'runDetached': {
@@ -181,7 +186,7 @@ parentPort.on('message', m => {
 
 // release lock
 
-v.respond();
+v.respond(true);
 
 // run init module
 
