@@ -156,7 +156,7 @@ class RequestContext {
   
   setSyncHandler(fn) {
     this.instance.setSyncHandler(s => {
-      const j = JSON.parse(s);
+      const m = JSON.parse(s);
       let result, err;
       try {
         global._ = m.arg;
