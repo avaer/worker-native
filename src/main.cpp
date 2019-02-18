@@ -523,7 +523,7 @@ NAN_METHOD(RequestContext::SetSyncHandler) {
     
     requestContextImpl->parentSyncHandler.Reset(localFn);
   } else {
-    Nan::ThrowError("PushSyncRequest::SetSyncHandler: invalid arguments");
+    Nan::ThrowError("RequestContext::SetSyncHandler: invalid arguments");
   }
 }
 
@@ -541,7 +541,7 @@ NAN_METHOD(RequestContext::PushSyncRequest) {
     
     uv_async_send(&requestContextImpl->parentAsync);
   } else {
-    Nan::ThrowError("PushSyncRequest::SetSyncHandler: invalid arguments");
+    Nan::ThrowError("RequestContext::PushSyncRequest: invalid arguments");
   }
 }
 
