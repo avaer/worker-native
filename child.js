@@ -7,7 +7,10 @@ const {Worker, workerData, parentPort} = require('worker_threads');
 
 // latch parent WorkerNative
 
-const vmOne = (() => {
+const {
+  WorkerNative: workerNative,
+  RequestContext: requestContext,
+}  = (() => {
   const exports = {};
   const childVmOneSoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
   const childVmOne = require(childVmOneSoPath);
@@ -15,14 +18,14 @@ const vmOne = (() => {
   delete require.cache[childVmOneSoPath]; // cannot be reused
   exports.WorkerNative.setNativeRequire('worker_native.node', workerData.initFunctionAddress);
 
-  return exports.WorkerNative;
+  return exports;
 })();
 
 const eventLoopNative = require('event-loop-native');
-vmOne.setEventLoop(eventLoopNative);
-vmOne.dlclose(eventLoopNative.getDlibPath());
+workerNative.setEventLoop(eventLoopNative);
+workerNative.dlclose(eventLoopNative.getDlibPath());
 
-const v = vmOne.fromArray(workerData.array);
+const v = workerNative.fromArray(workerData.array);
 
 // global initialization
 
@@ -43,19 +46,23 @@ Object.defineProperty(global, 'onmessage', {
     global.on('message', onmessage);
   },
 });
-global.postInternalMessage = (message, transferList) => parentPort.postMessage({
-  method: 'postInternalMessage',
-  message,
-}, transferList);
-Object.defineProperty(global, 'oninternalmessage', {
-  get() {
-    return this.listeners('internalmessage')[0];
-  },
-  set(oninternalmessage) {
-    global.on('internalmessage', oninternalmessage);
-  },
-});
-global.requireNative = vmOne.requireNative;
+
+const topRequestContext = requestContext.getTopRequestContext();
+global.runSyncTop = (jsString, arg) => {
+  topRequestContext.pushSyncRequest({
+    method: 'runSync',
+    jsString,
+    arg,
+  });
+  const {err, result} = JSON.parse(topRequestContext.popResult());
+  if (!err) {
+    return result;
+  } else {
+    throw new Error(err);
+  }
+};
+
+global.requireNative = workerNative.requireNative;
 
 let baseUrl = '';
 function setBaseUrl(newBaseUrl) {
@@ -122,7 +129,7 @@ global.importScripts = importScripts;
 parentPort.on('message', m => {
   switch (m.method) {
     /* case 'lock': {
-      v.pushResult(true, global);
+      v.pushResult(global);
       break;
     } */
     case 'runRepl': {
@@ -132,43 +139,43 @@ parentPort.on('message', m => {
       } catch(e) {
         err = e.stack;
       }
-      v.pushResult(true, JSON.stringify({result, err}));
+      v.pushResult(JSON.stringify({result, err}));
       break;
     }
     case 'runSync': {
       let result, err;
       try {
-        if (m.arg) {
-          window._ = m.arg;
-        }
+        window._ = m.arg;
         result = eval(m.jsString);
       } catch(e) {
         err = e.stack;
+      } finally {
+        window._ = undefined;
       }
-      v.pushResult(true, JSON.stringify({result, err}));
+      v.pushResult(JSON.stringify({result, err}));
       break;
     }
     case 'runAsync': {
       let result, err;
       try {
-        if (m.arg) {
-          window._ = m.arg;
-        }
+        window._ = m.arg;
         result = eval(m.jsString);
       } catch(e) {
         err = e.stack;
+      } finally {
+        window._ = undefined;
       }
-      v.queueAsyncResponse(true, m.requestKey, JSON.stringify({result, err}));
+      v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
       break;
     }
     case 'runDetached': {
       try {
-        if (m.arg) {
-          window._ = m.arg;
-        }
+        window._ = m.arg;
         eval(m.jsString);
       } catch(err) {
         console.warn(err.stack);
+      } finally {
+        window._ = undefined;
       }
       break;
     }
@@ -186,7 +193,7 @@ parentPort.on('message', m => {
 
 // release lock
 
-v.respond(true);
+v.respond();
 
 // run init module
 

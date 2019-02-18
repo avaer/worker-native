@@ -27,6 +27,7 @@ void Init(Handle<Object> exports);
 void RunInThread(uv_async_t *handle);
 void DeleteAsync(uv_handle_t *handle);
 class WorkerNative;
+class RequestContextImpl;
 class RequestContext;
 
 Local<Array> pointerToArray(void *ptr) {
@@ -42,8 +43,9 @@ void *arrayToPointer(Local<Array> array) {
   return (void *)n;
 }
 
-thread_local uv_loop_t *eventLoop = nullptr;
 std::map<std::string, uintptr_t> nativeRequires;
+RequestContextImpl *topRequestContext = nullptr;
+thread_local uv_loop_t *eventLoop = nullptr;
 thread_local int requestKeys = 0;
 
 class WorkerNative : public ObjectWrap {
@@ -72,17 +74,14 @@ public:
   ~WorkerNative();
 
 // protected:
-  
-  RequestContext *innerRequestContext;
-  RequestContext *outerRequestContext;
-  uv_loop_t *threadLoop;
+  RequestContextImpl *requestContext;
   WorkerNative *oldWorkerNative;
 };
 
-class RequestContext {
+class RequestContextImpl {
 public:
-  RequestContext(uv_loop_t *loop);
-  ~RequestContext();
+  RequestContextImpl(uv_loop_t *loop);
+  ~RequestContextImpl();
 
 // protected:
   std::string result;
@@ -92,7 +91,31 @@ public:
   uv_async_t parentAsync;
   std::map<int, Nan::Persistent<Function>> parentAsyncFns;
   std::deque<std::pair<int, std::string>> parentAsyncQueue;
+  Nan::Persistent<Function> parentSyncHandler;
+  std::deque<std::string> parentSyncQueue;
   std::mutex parentAsyncMutex;
+};
+
+class RequestContext : public ObjectWrap {
+public:
+  RequestContext(RequestContextImpl *requestContext = nullptr);
+  ~RequestContext();
+
+// protected:
+  static Handle<Object> Initialize();
+// protected:
+  static NAN_METHOD(New);
+  /* static NAN_METHOD(FromArray);
+  static NAN_METHOD(ToArray); */
+  static NAN_METHOD(PushResult);
+  static NAN_METHOD(PopResult);
+  static NAN_METHOD(SetSyncHandler);
+  static NAN_METHOD(PushSyncRequest);
+  static NAN_METHOD(GetTopRequestContext);
+  static NAN_METHOD(SetTopRequestContext);
+
+// protected:
+  RequestContextImpl *requestContext;
 };
 
 Handle<Object> WorkerNative::Initialize() {
@@ -144,20 +167,8 @@ NAN_METHOD(WorkerNative::New) {
     oldWorkerNative = nullptr;
   }
 
-  WorkerNative *vmOne = oldWorkerNative ? new WorkerNative(oldWorkerNative) : new WorkerNative();
+  WorkerNative *vmOne = new WorkerNative(oldWorkerNative);
   vmOne->Wrap(vmOneObj);
-
-  info.GetReturnValue().Set(vmOneObj);
-}
-
-NAN_METHOD(WorkerNative::FromArray) {
-  Local<Array> array = Local<Array>::Cast(info[0]);
-
-  Local<Function> vmOneConstructor = Local<Function>::Cast(info.This());
-  Local<Value> argv[] = {
-    array,
-  };
-  Local<Value> vmOneObj = vmOneConstructor->NewInstance(Isolate::GetCurrent()->GetCurrentContext(), sizeof(argv)/sizeof(argv[0]), argv).ToLocalChecked();
 
   info.GetReturnValue().Set(vmOneObj);
 }
@@ -170,6 +181,18 @@ NAN_METHOD(WorkerNative::ToArray) {
   array->Set(1, Nan::New<Integer>((uint32_t)((uintptr_t)vmOne & 0xFFFFFFFF)));
 
   info.GetReturnValue().Set(array);
+}
+
+NAN_METHOD(WorkerNative::FromArray) {
+  Local<Array> array = Local<Array>::Cast(info[0]);
+
+  Local<Function> vmOneConstructor = Local<Function>::Cast(info.This());
+  Local<Value> argv[] = {
+    array,
+  };
+  Local<Value> vmOneObj = vmOneConstructor->NewInstance(Isolate::GetCurrent()->GetCurrentContext(), sizeof(argv)/sizeof(argv[0]), argv).ToLocalChecked();
+
+  info.GetReturnValue().Set(vmOneObj);
 }
 
 bool WorkerNative::Dlclose(const char *soPath) {
@@ -267,9 +290,9 @@ NAN_METHOD(WorkerNative::SetNativeRequire) {
   }
 }
 
-WorkerNative::WorkerNative(WorkerNative *ovmo) : innerRequestContext(nullptr), outerRequestContext(nullptr), threadLoop(eventLoop), oldWorkerNative(nullptr) {
+WorkerNative::WorkerNative(WorkerNative *ovmo) : requestContext(nullptr), oldWorkerNative(nullptr) {
   if (!ovmo) {
-    innerRequestContext = new RequestContext(threadLoop);
+    requestContext = new RequestContextImpl(eventLoop);
   } else {
     /* Local<Context> localContext = Isolate::GetCurrent()->GetCurrentContext();
 
@@ -277,105 +300,77 @@ WorkerNative::WorkerNative(WorkerNative *ovmo) : innerRequestContext(nullptr), o
     // ContextEmbedderIndex::kAllowWasmCodeGeneration = 34
     localContext->SetEmbedderData(34, Nan::New<Boolean>(true)); */
 
-    innerRequestContext = ovmo->innerRequestContext;
-    outerRequestContext = ovmo->outerRequestContext = new RequestContext(threadLoop);
+    requestContext = ovmo->requestContext;
     oldWorkerNative = ovmo;
   }
 }
 
 WorkerNative::~WorkerNative() {
   if (!oldWorkerNative) {
-    delete innerRequestContext;
-    delete outerRequestContext;
+    delete requestContext;
   }
 }
 
 NAN_METHOD(WorkerNative::Request) {
-  if (info[0]->IsBoolean()) {
-    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-    bool inner = info[0]->BooleanValue();
-    RequestContext *requestContext = inner ? vmOne->innerRequestContext : vmOne->outerRequestContext;
-    uv_sem_wait(&requestContext->requestSem);
-  } else {
-    Nan::ThrowError("WorkerNative::Request: invalid arguments");
-  }
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
+  RequestContextImpl *requestContext = vmOne->requestContext;
+  uv_sem_wait(&requestContext->requestSem);
 }
 
 NAN_METHOD(WorkerNative::Respond) {
-  if (info[0]->IsBoolean()) {
-    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-    bool inner = info[0]->BooleanValue();
-    RequestContext *requestContext = inner ? vmOne->innerRequestContext : vmOne->outerRequestContext;
-    uv_sem_post(&requestContext->requestSem);
-  } else {
-    Nan::ThrowError("WorkerNative::Respond: invalid arguments");
-  }
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
+  RequestContextImpl *requestContext = vmOne->requestContext;
+  uv_sem_post(&requestContext->requestSem);
 }
 
 NAN_METHOD(WorkerNative::PushResult) {
-  if (info[0]->IsBoolean()) {
-    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-    bool inner = info[0]->BooleanValue();
-    RequestContext *requestContext = inner ? vmOne->innerRequestContext : vmOne->outerRequestContext;
-    
-    if (info[1]->IsString()) {
-      Local<String> stringValue = Local<String>::Cast(info[1]);
-      String::Utf8Value utf8Value(stringValue);
-      requestContext->result = std::string(*utf8Value, utf8Value.length());
-    }
-    
-    uv_sem_post(&requestContext->lockRequestSem);
-    uv_sem_wait(&requestContext->lockResponseSem);
-
-    requestContext->result.clear();
-  } else {
-    Nan::ThrowError("WorkerNative::PushResult: invalid arguments");
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
+  RequestContextImpl *requestContext = vmOne->requestContext;
+  
+  if (info[0]->IsString()) {
+    Local<String> stringValue = Local<String>::Cast(info[0]);
+    String::Utf8Value utf8Value(stringValue);
+    requestContext->result = std::string(*utf8Value, utf8Value.length());
   }
+  
+  uv_sem_post(&requestContext->lockRequestSem);
+  uv_sem_wait(&requestContext->lockResponseSem);
+
+  requestContext->result.clear();
 }
 
 NAN_METHOD(WorkerNative::PopResult) {
-  if (info[0]->IsBoolean()) {
-    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-    bool inner = info[0]->BooleanValue();
-    RequestContext *requestContext = inner ? vmOne->innerRequestContext : vmOne->outerRequestContext;
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
+  RequestContextImpl *requestContext = vmOne->requestContext;
 
-    uv_sem_wait(&requestContext->lockRequestSem);
-    Local<String> result = JS_STR(requestContext->result);
-    uv_sem_post(&requestContext->lockResponseSem);
+  uv_sem_wait(&requestContext->lockRequestSem);
+  Local<String> result = JS_STR(requestContext->result);
+  uv_sem_post(&requestContext->lockResponseSem);
 
-    info.GetReturnValue().Set(result);
-  } else {
-    Nan::ThrowError("WorkerNative::PopResult: invalid arguments");
-  }
+  info.GetReturnValue().Set(result);
 }
 
 NAN_METHOD(WorkerNative::QueueAsyncRequest) {
-  if (info[0]->IsBoolean() && info[1]->IsFunction()) {
-    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-    bool inner = info[0]->BooleanValue();
-    Local<Function> localFn = Local<Function>::Cast(info[1]);
-    RequestContext *requestContext = inner ? vmOne->innerRequestContext : vmOne->outerRequestContext;
+  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
+  RequestContextImpl *requestContext = vmOne->requestContext;
+  Local<Function> localFn = Local<Function>::Cast(info[0]);
 
-    int requestKey = ++requestKeys;
-    {
-      std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
+  int requestKey = ++requestKeys;
+  {
+    std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
 
-      requestContext->parentAsyncFns.emplace(requestKey, localFn);
-    }
-
-    info.GetReturnValue().Set(JS_INT(requestKey));
-  } else {
-    Nan::ThrowError("WorkerNative::QueueAsyncRequest: invalid arguments");
+    requestContext->parentAsyncFns.emplace(requestKey, localFn);
   }
+
+  info.GetReturnValue().Set(JS_INT(requestKey));
 }
 
 NAN_METHOD(WorkerNative::QueueAsyncResponse) {
-  if (info[0]->IsBoolean() && info[1]->IsNumber() && info[2]->IsString()) {
+  if (info[0]->IsNumber() && info[1]->IsString()) {
     WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-    bool inner = info[0]->BooleanValue();
-    int requestKey = info[1]->Int32Value();
-    String::Utf8Value utf8Value(info[2]);
-    RequestContext *requestContext = inner ? vmOne->innerRequestContext : vmOne->outerRequestContext;
+    RequestContextImpl *requestContext = vmOne->requestContext;
+    int requestKey = info[0]->Int32Value();
+    String::Utf8Value utf8Value(info[1]);
 
     {
       std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
@@ -389,7 +384,7 @@ NAN_METHOD(WorkerNative::QueueAsyncResponse) {
   }
 }
 
-RequestContext::RequestContext(uv_loop_t *loop) {
+RequestContextImpl::RequestContextImpl(uv_loop_t *loop) {
   uv_sem_init(&lockRequestSem, 0);
   uv_sem_init(&lockResponseSem, 0);
   uv_sem_init(&requestSem, 0);
@@ -398,21 +393,180 @@ RequestContext::RequestContext(uv_loop_t *loop) {
   parentAsync.data = this;
 }
 
-RequestContext::~RequestContext() {
+RequestContextImpl::~RequestContextImpl() {
   uv_sem_destroy(&lockRequestSem);
   uv_sem_destroy(&lockResponseSem);
   uv_sem_destroy(&requestSem);
   
-  uv_close((uv_handle_t *)(&parentAsync), DeleteAsync);
+  uv_close((uv_handle_t *)(&parentAsync), DeleteAsync); // XXX clean up deletion here
+}
+
+Handle<Object> RequestContext::Initialize() {
+  Nan::EscapableHandleScope scope;
+
+  // constructor
+  Local<FunctionTemplate> ctor = Nan::New<FunctionTemplate>(New);
+  ctor->InstanceTemplate()->SetInternalFieldCount(1);
+  ctor->SetClassName(JS_STR("RequestContext"));
+
+  // prototype
+  Local<ObjectTemplate> proto = ctor->PrototypeTemplate();
+  // Nan::SetMethod(proto, "toArray", ToArray);
+  Nan::SetMethod(proto, "pushResult", PushResult);
+  Nan::SetMethod(proto, "popResult", PopResult);
+  Nan::SetMethod(proto, "setSyncHandler", SetSyncHandler);
+  Nan::SetMethod(proto, "pushSyncRequest", PushSyncRequest);
+
+  Local<Function> ctorFn = ctor->GetFunction();
+  // ctorFn->Set(JS_STR("fromArray"), Nan::New<Function>(FromArray));
+  ctorFn->Set(JS_STR("getTopRequestContext"), Nan::New<Function>(GetTopRequestContext));
+  ctorFn->Set(JS_STR("setTopRequestContext"), Nan::New<Function>(SetTopRequestContext));
+
+  return scope.Escape(ctorFn);
+}
+
+NAN_METHOD(RequestContext::New) {
+  Local<Object> requestContextObj = Local<Object>::Cast(info.This());
+
+  RequestContextImpl *oldRequestContext;
+  if (info[0]->IsArray()) {
+    Local<Array> array = Local<Array>::Cast(info[0]);
+    uint32_t a = array->Get(0)->Uint32Value();
+    uint32_t b = array->Get(1)->Uint32Value();
+    uintptr_t c = ((uintptr_t)a << 32) | (uintptr_t)b;
+    oldRequestContext = reinterpret_cast<RequestContextImpl *>(c);
+  } else {
+    oldRequestContext = nullptr;
+  }
+
+  RequestContext *requestContext = new RequestContext(oldRequestContext);
+  requestContext->Wrap(requestContextObj);
+
+  info.GetReturnValue().Set(requestContextObj);
+}
+
+RequestContext::RequestContext(RequestContextImpl *rc) {
+  if (rc) {
+    requestContext = rc;
+  } else {
+    requestContext = new RequestContextImpl(eventLoop);
+  }
+}
+
+RequestContext::~RequestContext() {}
+
+NAN_METHOD(RequestContext::PushResult) {
+  RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
+  RequestContextImpl *requestContextImpl = requestContext->requestContext;
+  
+  if (info[0]->IsString()) {
+    Local<String> stringValue = Local<String>::Cast(info[0]);
+    String::Utf8Value utf8Value(stringValue);
+    requestContextImpl->result = std::string(*utf8Value, utf8Value.length());
+  }
+  
+  uv_sem_post(&requestContextImpl->lockRequestSem);
+  uv_sem_wait(&requestContextImpl->lockResponseSem);
+
+  requestContextImpl->result.clear();
+}
+
+NAN_METHOD(RequestContext::PopResult) {
+  RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
+  RequestContextImpl *requestContextImpl = requestContext->requestContext;
+
+  uv_sem_wait(&requestContextImpl->lockRequestSem);
+  Local<String> result = JS_STR(requestContextImpl->result);
+  uv_sem_post(&requestContextImpl->lockResponseSem);
+
+  info.GetReturnValue().Set(result);
+}
+
+NAN_METHOD(RequestContext::SetSyncHandler) {
+  if (info[0]->IsFunction()) {
+    RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
+    Local<Function> localFn = Local<Function>::Cast(info[0]);
+    RequestContextImpl *requestContextImpl = requestContext->requestContext;
+    
+    requestContextImpl->parentSyncHandler.Reset(localFn);
+  } else {
+    Nan::ThrowError("PushSyncRequest::SetSyncHandler: invalid arguments");
+  }
+}
+
+NAN_METHOD(RequestContext::PushSyncRequest) {
+  if (info[0]->IsString()) {
+    RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
+    String::Utf8Value utf8Value(info[0]);
+    RequestContextImpl *requestContextImpl = requestContext->requestContext;
+    
+    {
+      std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+
+      requestContextImpl->parentSyncQueue.push_back(std::string(*utf8Value, utf8Value.length()));
+    }
+    
+    uv_async_send(&requestContextImpl->parentAsync);
+  } else {
+    Nan::ThrowError("PushSyncRequest::SetSyncHandler: invalid arguments");
+  }
+}
+
+/* NAN_METHOD(RequestContext::ToArray) {
+  RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
+
+  Local<Array> array = Nan::New<Array>(2);
+  array->Set(0, Nan::New<Integer>((uint32_t)((uintptr_t)requestContext >> 32)));
+  array->Set(1, Nan::New<Integer>((uint32_t)((uintptr_t)requestContext & 0xFFFFFFFF)));
+
+  info.GetReturnValue().Set(array);
+}
+
+NAN_METHOD(RequestContext::FromArray) {
+  Local<Array> array = Local<Array>::Cast(info[0]);
+
+  Local<Function> requestContextConstructor = Local<Function>::Cast(info.This());
+  Local<Value> argv[] = {
+    array,
+  };
+  Local<Value> requestContextObj = requestContextConstructor->NewInstance(Isolate::GetCurrent()->GetCurrentContext(), sizeof(argv)/sizeof(argv[0]), argv).ToLocalChecked();
+
+  info.GetReturnValue().Set(requestContextObj);
+} */
+
+NAN_METHOD(RequestContext::GetTopRequestContext) {
+  if (topRequestContext) {
+    Local<Function> requestContextConstructor = Local<Function>::Cast(info.This());
+    Local<Array> array = pointerToArray(topRequestContext);
+    Local<Value> argv[] = {
+      array,
+    };
+    Local<Value> requestContextObj = requestContextConstructor->NewInstance(Isolate::GetCurrent()->GetCurrentContext(), sizeof(argv)/sizeof(argv[0]), argv).ToLocalChecked();
+
+    info.GetReturnValue().Set(requestContextObj);
+  } else {
+    info.GetReturnValue().Set(Nan::Null());
+  }
+}
+
+NAN_METHOD(RequestContext::SetTopRequestContext) {
+  if (info[0]->IsObject()) {
+    RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(Local<Object>::Cast(info[0]));
+    topRequestContext = requestContext->requestContext;
+  } else {
+    Nan::ThrowError("RequestContext::SetTopRequestContext: invalid arguments");
+  }
 }
 
 void RunInThread(uv_async_t *handle) {
   Nan::HandleScope scope;
 
-  RequestContext *requestContext = (RequestContext *)(((uv_async_t *)handle)->data);
+  RequestContextImpl *requestContext = (RequestContextImpl *)(((uv_async_t *)handle)->data);
 
   std::deque<std::pair<int, std::string>> localParentAsyncQueue;
   std::vector<Local<Function>> localParentAsyncFns;
+  Local<Function> localParentSyncHandlerFn;
+  std::deque<std::string> localParentSyncQueue;
   {
     std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
 
@@ -427,6 +581,13 @@ void RunInThread(uv_async_t *handle) {
       fn.Reset();
       requestContext->parentAsyncFns.erase(requestKey);
     }
+
+    if (!requestContext->parentSyncHandler.IsEmpty()) {
+      localParentSyncHandlerFn = Nan::New(requestContext->parentSyncHandler);
+      
+      localParentSyncQueue = std::move(requestContext->parentSyncQueue);
+      requestContext->parentSyncQueue.clear();
+    }
   }
 
   for (size_t i = 0; i < localParentAsyncQueue.size(); i++) {
@@ -436,12 +597,24 @@ void RunInThread(uv_async_t *handle) {
     const std::string &requestResult = localParentAsyncQueue[i].second;
 
     Local<Object> asyncObj = Nan::New<Object>();
-    AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "WorkerNative::RunInThread");
+    AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "RequestContextImpl::RunInThread Async");
 
     Local<Value> argv[] = {
       JS_STR(requestResult),
     };
     asyncResource.MakeCallback(localFn, sizeof(argv)/sizeof(argv[0]), argv);
+  }
+
+  for (size_t i = 0; i < localParentSyncQueue.size(); i++) {
+    const std::string &requestString = localParentSyncQueue[i];
+
+    Local<Object> asyncObj = Nan::New<Object>();
+    AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "RequestContextImpl::RunInThread Sync");
+
+    Local<Value> argv[] = {
+      JS_STR(requestString),
+    };
+    asyncResource.MakeCallback(localParentSyncHandlerFn, sizeof(argv)/sizeof(argv[0]), argv);
   }
 }
 
@@ -452,6 +625,7 @@ void DeleteAsync(uv_handle_t *handle) {
 
 void Init(Handle<Object> exports) {
   exports->Set(JS_STR("WorkerNative"), WorkerNative::Initialize());
+  exports->Set(JS_STR("RequestContext"), RequestContext::Initialize());
 }
 
 void RootInit(Handle<Object> exports) {
