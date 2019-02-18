@@ -53,8 +53,8 @@ global.runSyncTop = (jsString, arg) => {
     method: 'runSync',
     jsString,
     arg,
-  const {err, result} = JSON.parse(topRequestContext.popResult());
   }));
+  const {err, result} = JSON.parse(topRequestContext.popResult());
   if (!err) {
     return result;
   } else {
