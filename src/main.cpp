@@ -86,11 +86,12 @@ public:
 // protected:
   std::string result;
   uv_sem_t lockRequestSem;
-  uv_sem_t lockResponseSem;
+  // uv_sem_t lockResponseSem;
   uv_sem_t requestSem;
   uv_async_t parentAsync;
   std::map<int, Nan::Persistent<Function>> parentAsyncFns;
   std::deque<std::pair<int, std::string>> parentAsyncQueue;
+  std::deque<std::string> parentResultQueue;
   Nan::Persistent<Function> parentSyncHandler;
   std::deque<std::string> parentSyncQueue;
   std::mutex parentAsyncMutex;
@@ -326,15 +327,22 @@ NAN_METHOD(WorkerNative::Respond) {
 NAN_METHOD(WorkerNative::PushResult) {
   WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
   RequestContextImpl *requestContext = vmOne->requestContext;
-  
+
+  std::string result;
   if (info[0]->IsString()) {
     Local<String> stringValue = Local<String>::Cast(info[0]);
     String::Utf8Value utf8Value(stringValue);
-    requestContext->result = std::string(*utf8Value, utf8Value.length());
+    result = std::string(*utf8Value, utf8Value.length());
+  }
+  
+  {
+    std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
+
+    requestContext->parentResultQueue.push_back(std::move(result));
   }
   
   uv_sem_post(&requestContext->lockRequestSem);
-  uv_sem_wait(&requestContext->lockResponseSem);
+  // uv_sem_wait(&requestContext->lockResponseSem);
 
   requestContext->result.clear();
 }
@@ -344,10 +352,19 @@ NAN_METHOD(WorkerNative::PopResult) {
   RequestContextImpl *requestContext = vmOne->requestContext;
 
   uv_sem_wait(&requestContext->lockRequestSem);
-  Local<String> result = JS_STR(requestContext->result);
-  uv_sem_post(&requestContext->lockResponseSem);
 
-  info.GetReturnValue().Set(result);
+  std::string result;
+  {
+    std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
+
+    result = std::move(requestContext->parentResultQueue.front());
+    requestContext->parentResultQueue.pop_front();
+  }
+  
+  Local<String> resultValue = JS_STR(result);
+  // uv_sem_post(&requestContext->lockResponseSem);
+
+  info.GetReturnValue().Set(resultValue);
 }
 
 NAN_METHOD(WorkerNative::QueueAsyncRequest) {
@@ -386,7 +403,7 @@ NAN_METHOD(WorkerNative::QueueAsyncResponse) {
 
 RequestContextImpl::RequestContextImpl(uv_loop_t *loop) {
   uv_sem_init(&lockRequestSem, 0);
-  uv_sem_init(&lockResponseSem, 0);
+  // uv_sem_init(&lockResponseSem, 0);
   uv_sem_init(&requestSem, 0);
 
   uv_async_init(loop, &parentAsync, RunInThread);
@@ -395,7 +412,7 @@ RequestContextImpl::RequestContextImpl(uv_loop_t *loop) {
 
 RequestContextImpl::~RequestContextImpl() {
   uv_sem_destroy(&lockRequestSem);
-  uv_sem_destroy(&lockResponseSem);
+  // uv_sem_destroy(&lockResponseSem);
   uv_sem_destroy(&requestSem);
   
   uv_close((uv_handle_t *)(&parentAsync), DeleteAsync); // XXX clean up deletion here
@@ -459,14 +476,21 @@ NAN_METHOD(RequestContext::PushResult) {
   RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
   RequestContextImpl *requestContextImpl = requestContext->requestContext;
   
+  std::string result;
   if (info[0]->IsString()) {
     Local<String> stringValue = Local<String>::Cast(info[0]);
     String::Utf8Value utf8Value(stringValue);
-    requestContextImpl->result = std::string(*utf8Value, utf8Value.length());
+    result = std::string(*utf8Value, utf8Value.length());
+  }
+  
+  {
+    std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+
+    requestContextImpl->parentResultQueue.push_back(std::move(result));
   }
   
   uv_sem_post(&requestContextImpl->lockRequestSem);
-  uv_sem_wait(&requestContextImpl->lockResponseSem);
+  // uv_sem_wait(&requestContextImpl->lockResponseSem);
 
   requestContextImpl->result.clear();
 }
@@ -476,10 +500,19 @@ NAN_METHOD(RequestContext::PopResult) {
   RequestContextImpl *requestContextImpl = requestContext->requestContext;
 
   uv_sem_wait(&requestContextImpl->lockRequestSem);
-  Local<String> result = JS_STR(requestContextImpl->result);
-  uv_sem_post(&requestContextImpl->lockResponseSem);
 
-  info.GetReturnValue().Set(result);
+  std::string result;
+  {
+    std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+
+    result = std::move(requestContextImpl->parentResultQueue.front());
+    requestContextImpl->parentResultQueue.pop_front();
+  }
+  
+  Local<String> resultValue = JS_STR(result);
+  // uv_sem_post(&requestContextImpl->lockResponseSem);
+
+  info.GetReturnValue().Set(resultValue);
 }
 
 NAN_METHOD(RequestContext::SetSyncHandler) {
@@ -503,7 +536,7 @@ NAN_METHOD(RequestContext::PushSyncRequest) {
     {
       std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
 
-      requestContextImpl->parentSyncQueue.push_back(std::string(*utf8Value, utf8Value.length()));
+      requestContextImpl->parentSyncQueue.emplace_back(*utf8Value, utf8Value.length());
     }
     
     uv_async_send(&requestContextImpl->parentAsync);

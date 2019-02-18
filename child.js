@@ -49,12 +49,12 @@ Object.defineProperty(global, 'onmessage', {
 
 const topRequestContext = requestContext.getTopRequestContext();
 global.runSyncTop = (jsString, arg) => {
-  topRequestContext.pushSyncRequest({
+  topRequestContext.pushSyncRequest(JSON.stringify({
     method: 'runSync',
     jsString,
     arg,
-  });
   const {err, result} = JSON.parse(topRequestContext.popResult());
+  }));
   if (!err) {
     return result;
   } else {
@@ -128,8 +128,14 @@ global.importScripts = importScripts;
 
 parentPort.on('message', m => {
   switch (m.method) {
-    /* case 'lock': {
-      v.pushResult(global);
+    /* case 'runRepl': {
+      let result, err;
+      try {
+        result = util.inspect(eval(m.jsString));
+      } catch(e) {
+        err = e.stack;
+      }
+      v.pushResult(JSON.stringify({result, err}));
       break;
     } */
     case 'runRepl': {
@@ -139,7 +145,7 @@ parentPort.on('message', m => {
       } catch(e) {
         err = e.stack;
       }
-      v.pushResult(JSON.stringify({result, err}));
+      v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
       break;
     }
     case 'runSync': {

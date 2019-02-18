@@ -91,16 +91,21 @@ class NativeWorker extends EventEmitter {
     }
   }
   runRepl(jsString, transferList) {
-    this.worker.postMessage({
-      method: 'runRepl',
-      jsString,
-    }, transferList);
-    const {err, result} = JSON.parse(this.instance.popResult());
-    if (!err) {
-      return result;
-    } else {
-      throw new Error(err);
-    }
+    return new Promise((accept, reject) => {
+      const requestKey = this.instance.queueAsyncRequest(s => {
+        const o = JSON.parse(s);
+        if (!o.err) {
+          accept(o.result);
+        } else {
+          reject(o.err);
+        }
+      });
+      this.worker.postMessage({
+        method: 'runRepl',
+        jsString,
+        requestKey,
+      }, transferList);
+    });
   }
   runAsync(jsString, arg, transferList) {
     return new Promise((accept, reject) => {
@@ -159,12 +164,9 @@ class RequestContext {
       const m = JSON.parse(s);
       let result, err;
       try {
-        global._ = m.arg;
-        result = eval(m.jsString);
+        result = fn(m);
       } catch(e) {
         err = e.stack;
-      } finally {
-        global._ = undefined;
       }
       this.instance.pushResult(JSON.stringify({result, err}));
     });
