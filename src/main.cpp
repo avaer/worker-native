@@ -88,7 +88,7 @@ public:
   uv_sem_t lockRequestSem;
   // uv_sem_t lockResponseSem;
   uv_sem_t requestSem;
-  uv_async_t parentAsync;
+  uv_async_t *parentAsync;
   std::map<int, Nan::Persistent<Function>> parentAsyncFns;
   std::deque<std::pair<int, std::string>> parentAsyncQueue;
   std::deque<std::string> parentResultQueue;
@@ -395,7 +395,7 @@ NAN_METHOD(WorkerNative::QueueAsyncResponse) {
       requestContext->parentAsyncQueue.emplace_back(requestKey, std::string(*utf8Value, utf8Value.length()));
     }
 
-    uv_async_send(&requestContext->parentAsync);
+    uv_async_send(requestContext->parentAsync);
   } else {
     Nan::ThrowError("WorkerNative::QueueAsyncResponse: invalid arguments");
   }
@@ -406,8 +406,9 @@ RequestContextImpl::RequestContextImpl(uv_loop_t *loop) {
   // uv_sem_init(&lockResponseSem, 0);
   uv_sem_init(&requestSem, 0);
 
-  uv_async_init(loop, &parentAsync, RunInThread);
-  parentAsync.data = this;
+  parentAsync = new uv_async_t();
+  uv_async_init(loop, parentAsync, RunInThread);
+  parentAsync->data = this;
 }
 
 RequestContextImpl::~RequestContextImpl() {
@@ -415,7 +416,7 @@ RequestContextImpl::~RequestContextImpl() {
   // uv_sem_destroy(&lockResponseSem);
   uv_sem_destroy(&requestSem);
   
-  uv_close((uv_handle_t *)(&parentAsync), DeleteAsync); // XXX clean up deletion here
+  uv_close((uv_handle_t *)parentAsync, DeleteAsync);
 }
 
 Handle<Object> RequestContext::Initialize() {
@@ -539,7 +540,7 @@ NAN_METHOD(RequestContext::PushSyncRequest) {
       requestContextImpl->parentSyncQueue.emplace_back(*utf8Value, utf8Value.length());
     }
     
-    uv_async_send(&requestContextImpl->parentAsync);
+    uv_async_send(requestContextImpl->parentAsync);
   } else {
     Nan::ThrowError("RequestContext::PushSyncRequest: invalid arguments");
   }
