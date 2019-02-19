@@ -46,21 +46,10 @@ class NativeWorker extends EventEmitter {
           this.emit('message', m);
           break;
         }
-        /* case 'runSync': {
-          let result, err;
-          try {
-            if (m.arg) {
-              global._ = m.arg;
-            }
-            console.log('pre 1');
-            result = eval(m.jsString);
-            console.log('pre 2', result instanceof Array);
-          } catch(e) {
-            err = e.stack;
-          }
-          instance.pushResult(JSON.stringify({result, err}));
+        case 'emit': {
+          this.emit(m.type, m.event);
           break;
-        } */
+        }
         default: {
           throw new Error(`worker got unknown message type '${m.method}'`);
           break;

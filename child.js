@@ -47,6 +47,12 @@ Object.defineProperty(global, 'onmessage', {
   },
 });
 
+global.windowEmit = (type, event, transferList) => parentPort.postMessage({
+  method: 'emit',
+  type,
+  event,
+}, transferList);
+
 const topRequestContext = requestContext.getTopRequestContext();
 global.runSyncTop = (jsString, arg) => {
   topRequestContext.pushSyncRequest(JSON.stringify({
