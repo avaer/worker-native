@@ -171,7 +171,14 @@ parentPort.on('message', m => {
       } finally {
         window._ = undefined;
       }
-      v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
+      if (!err) {
+        Promise.resolve(result)
+          .then(result => {
+            v.queueAsyncResponse(m.requestKey, JSON.stringify({result}));
+          });
+      } else {
+        v.queueAsyncResponse(m.requestKey, JSON.stringify({err}));
+      }
       break;
     }
     case 'runDetached': {
