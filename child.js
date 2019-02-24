@@ -12,12 +12,9 @@ const {
   RequestContext: requestContext,
 }  = (() => {
   const exports = {};
-  const childVmOne = typeof requireNative === 'undefined' ? require(__dirname, 'build', 'Release', 'worker_native2.node') : requireNative('worker_native2.node');
+  const childVmOne = require(__dirname, 'build', 'Release', 'worker_native2.node');
   childVmOne.initChild(workerData.initFunctionAddress, exports);
   // delete require.cache[childVmOneSoPath]; // cannot be reused
-  // exports.WorkerNative.setNativeRequire('worker_native.node', workerData.initFunctionAddress);
-  exports.WorkerNative.setNativeRequire('worker_native2.node', childVmOne.initFunctionAddress);
-
   return exports;
 })();
 

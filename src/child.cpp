@@ -36,11 +36,11 @@ void Init(Handle<Object> exports) {
   Local<Function> initChildFn = Nan::New<Function>(InitChild);
   exports->Set(JS_STR("initChild"), Initialize());
   
-  uintptr_t initFunctionAddress = (uintptr_t)vmone2::Init;
+  /* uintptr_t initFunctionAddress = (uintptr_t)vmone2::Init;
   Local<Array> initFunctionAddressArray = Nan::New<Array>(2);
   initFunctionAddressArray->Set(0, Nan::New<Integer>((uint32_t)(initFunctionAddress >> 32)));
   initFunctionAddressArray->Set(1, Nan::New<Integer>((uint32_t)(initFunctionAddress & 0xFFFFFFFF)));
-  exports->Set(JS_STR("initFunctionAddress"), initFunctionAddressArray);
+  exports->Set(JS_STR("initFunctionAddress"), initFunctionAddressArray); */
 }
 
 }
