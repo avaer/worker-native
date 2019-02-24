@@ -8,7 +8,7 @@ const {
   typeof requireNative === 'undefined' ?
     require(path.join(__dirname, 'build', 'Release', 'worker_native.node'))
   :
-  requireNative('worker_native.node');
+    requireNative('worker_native.node');
 const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
 const childJsPath = path.join(__dirname, 'child.js');
 
