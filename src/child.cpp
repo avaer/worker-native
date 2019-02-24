@@ -30,15 +30,17 @@ NAN_METHOD(InitChild) {
   }
 }
 
-Handle<Object> Initialize() {
-  Nan::EscapableHandleScope scope;
-
-  Local<Function> initChildFn = Nan::New<Function>(InitChild);
-  return scope.Escape(initChildFn);
-}
-
 void Init(Handle<Object> exports) {
+  Nan::HandleScope scope;
+  
+  Local<Function> initChildFn = Nan::New<Function>(InitChild);
   exports->Set(JS_STR("initChild"), Initialize());
+  
+  uintptr_t initFunctionAddress = (uintptr_t)vmone2::Init;
+  Local<Array> initFunctionAddressArray = Nan::New<Array>(2);
+  initFunctionAddressArray->Set(0, Nan::New<Integer>((uint32_t)(initFunctionAddress >> 32)));
+  initFunctionAddressArray->Set(1, Nan::New<Integer>((uint32_t)(initFunctionAddress & 0xFFFFFFFF)));
+  exports->Set(JS_STR("initFunctionAddress"), initFunctionAddressArray);
 }
 
 }
