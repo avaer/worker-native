@@ -197,6 +197,7 @@ NAN_METHOD(WorkerNative::FromArray) {
 }
 
 bool WorkerNative::Dlclose(const char *soPath) {
+#ifndef LUMIN
 #ifndef _WIN32
   void *handle = dlopen(soPath, RTLD_LAZY);
 
@@ -219,6 +220,9 @@ bool WorkerNative::Dlclose(const char *soPath) {
   } else {
     return false;
   }
+#endif
+#else
+  return true;
 #endif
 }
 
