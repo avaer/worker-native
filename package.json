@@ -17,7 +17,7 @@
   },
   "homepage": "https://github.com/modulesio/vm-one#readme",
   "dependencies": {
-    "event-loop-native": "0.0.9",
+    "event-loop-native": "0.0.10",
     "nan": "^2.10.0"
   }
 }
