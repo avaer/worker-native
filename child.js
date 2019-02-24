@@ -16,7 +16,7 @@ const {
   const childVmOne = require(childVmOneSoPath);
   childVmOne.initChild(workerData.initFunctionAddress, exports);
   delete require.cache[childVmOneSoPath]; // cannot be reused
-  exports.WorkerNative.setNativeRequire('worker_native.node', workerData.initFunctionAddress);
+  // exports.WorkerNative.setNativeRequire('worker_native.node', workerData.initFunctionAddress);
 
   return exports;
 })();

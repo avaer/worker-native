@@ -15,7 +15,8 @@ const childJsPath = path.join(__dirname, 'child.js');
 const eventLoopNative = require('event-loop-native');
 nativeWorkerNative.setEventLoop(eventLoopNative);
 nativeWorkerNative.dlclose(eventLoopNative.getDlibPath());
-nativeWorkerNative.setNativeRequire('event_loop_native_napi.node', eventLoopNative.initFunctionAddress);
+
+nativeWorkerNative.setNativeRequire('worker_native.node', nativeWorkerNative.initFunctionAddress);
 
 /* let compiling = false;
 const make = () => new VmOne(e => {
