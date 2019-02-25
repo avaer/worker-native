@@ -4,11 +4,11 @@ const {Worker} = require('worker_threads');
 const {
   WorkerNative: nativeWorkerNative,
   RequestContext: nativeRequestContext,
-} =
-  typeof requireNative === 'undefined' ?
+} = require(path.join(__dirname, 'build', 'Release', 'worker_native.node'));
+  /* typeof requireNative === 'undefined' ?
     require(path.join(__dirname, 'build', 'Release', 'worker_native.node'))
   :
-    requireNative('worker_native.node');
+    requireNative('worker_native.node'); */
 const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
 const childJsPath = path.join(__dirname, 'child.js');
 
@@ -16,7 +16,7 @@ const eventLoopNative = require('event-loop-native');
 nativeWorkerNative.setEventLoop(eventLoopNative);
 nativeWorkerNative.dlclose(eventLoopNative.getDlibPath());
 
-nativeWorkerNative.setNativeRequire('worker_native.node', nativeWorkerNative.initFunctionAddress);
+// nativeWorkerNative.setNativeRequire('worker_native.node', nativeWorkerNative.initFunctionAddress);
 
 /* let compiling = false;
 const make = () => new VmOne(e => {
