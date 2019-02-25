@@ -34,7 +34,7 @@ void Init(Handle<Object> exports) {
   Nan::HandleScope scope;
   
   Local<Function> initChildFn = Nan::New<Function>(InitChild);
-  exports->Set(JS_STR("initChild"), Initialize());
+  exports->Set(JS_STR("initChild"), initChildFn);
   
   /* uintptr_t initFunctionAddress = (uintptr_t)vmone2::Init;
   Local<Array> initFunctionAddressArray = Nan::New<Array>(2);
