@@ -12,7 +12,7 @@ const {
   RequestContext: requestContext,
 }  = (() => {
   const exports = {};
-  const childVmOne = require(__dirname, 'build', 'Release', 'worker_native2.node');
+  const childVmOne = require(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
   childVmOne.initChild(workerData.initFunctionAddress, exports);
   // delete require.cache[childVmOneSoPath]; // cannot be reused
   return exports;
