@@ -51,19 +51,12 @@ global.windowEmit = (type, event, transferList) => parentPort.postMessage({
 }, transferList);
 
 const topRequestContext = requestContext.getTopRequestContext();
-global.runSyncTop = (jsString, arg) => {
-  topRequestContext.pushSyncRequest(JSON.stringify({
-    method: 'runSync',
-    jsString,
-    arg,
-  }));
-  const {err, result} = JSON.parse(topRequestContext.popResult());
-  if (!err) {
-    return result;
-  } else {
-    throw new Error(err);
-  }
+topRequestContext.runSyncTop = function(method, argsBuffer) {
+  this.pushSyncRequest(method, argsBuffer);
+  const result = this.popResult();
+  return result;
 };
+global.runSyncTop = topRequestContext.runSyncTop.bind(topRequestContext);
 
 global.requireNative = workerNative.requireNative;
 
