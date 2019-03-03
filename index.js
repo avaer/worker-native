@@ -172,17 +172,27 @@ class RequestContext {
   }
 }
 
+const _makeRequestContext = rc => {
+  const requestContext = new RequestContext(rc);
+  requestContext.runSyncTop = function(method, argsBuffer) {
+    this.pushSyncRequest(method, argsBuffer);
+    const result = this.popResult();
+    return result;
+  };
+  return requestContext;
+};
+
 const vmOne = {
   make(options = {}) {
     return new NativeWorker(options);
   },
   makeRequestContext() {
-    return new RequestContext();
+    return _makeRequestContext();
   },
   getEventLoop: nativeWorkerNative.getEventLoop,
   setEventLoop: nativeWorkerNative.setEventLoop,
   getTopRequestContext() {
-    return new RequestContext(nativeRequestContext.getTopRequestContext());
+    return _makeRequestContext(nativeRequestContext.getTopRequestContext());
   },
   setTopRequestContext(requestContext) {
     nativeRequestContext.setTopRequestContext(requestContext.instance);
