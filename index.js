@@ -1,14 +1,14 @@
 const path = require('path');
 const {EventEmitter} = require('events');
 const {Worker} = require('worker_threads');
+const vmOnePath = path.join(__dirname, 'build', 'Release', 'worker_native.node');
 const {
   WorkerNative: nativeWorkerNative,
   RequestContext: nativeRequestContext,
-} = require(path.join(__dirname, 'build', 'Release', 'worker_native.node'));
-  /* typeof requireNative === 'undefined' ?
-    require(path.join(__dirname, 'build', 'Release', 'worker_native.node'))
-  :
-    requireNative('worker_native.node'); */
+} = typeof requireNative === 'undefined' ?
+  require(path.join(__dirname, 'build', 'Release', 'worker_native.node'))
+:
+  requireNative('worker_native.node');
 const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
 const childJsPath = path.join(__dirname, 'child.js');
 
@@ -153,22 +153,39 @@ class RequestContext {
   constructor(instance = new nativeRequestContext()) {
     this.instance = instance;
   }
-  
-  setSyncHandler(fn) {
+
+  makeThread(handlers) {
+    this.instance.makeThread(handlers);
+  }
+
+  /* makeAsync(handlers) {
+    this.instance.makeAsync(handlers);
+  } */
+
+  /* setSyncHandler(fn) {
+    console.log('set sync handler', new Error().stack);
     this.instance.setSyncHandler(s => {
-      const m = JSON.parse(s);
-      let result, err;
       try {
-        result = fn(m);
-      } catch(e) {
-        err = e.stack;
+        const m = JSON.parse(s);
+        let result, err;
+        try {
+          result = fn(m);
+        } catch(e) {
+          err = e.stack;
+        }
+        this.instance.pushResult(JSON.stringify({result, err}));
+      } catch(err) {
+        console.warn(err.stack);
       }
-      this.instance.pushResult(JSON.stringify({result, err}));
     });
+  } */
+  
+  pushSyncRequest(method, args) {
+    this.instance.pushSyncRequest(method, args);
   }
   
-  pushSyncRequest(o) {
-    this.instance.pushSyncRequest(JSON.stringify(o));
+  popResult() {
+    return this.instance.popResult();
   }
 }
 
