@@ -129,6 +129,10 @@ class NativeWorker extends EventEmitter {
       message,
     }, transferList);
   }
+  
+  destroy() {
+    this.worker.terminate();
+  }
 
   get onmessage() {
     return this.listeners('message')[0];
