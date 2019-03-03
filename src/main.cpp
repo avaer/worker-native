@@ -11,6 +11,12 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <thread>
+#include <sys/types.h>
+// #include <ml_logging.h>
+#include <iostream>
+#define ML_LOG(t, s) std::cout << s << std::endl;
+#define Info 
 
 using namespace v8;
 using namespace node;
@@ -25,6 +31,7 @@ namespace workernative {
 
 void Init(Handle<Object> exports);
 void RunInThread(uv_async_t *handle);
+void HandleAsync(uv_async_t *handle);
 void DeleteAsync(uv_handle_t *handle);
 class WorkerNative;
 class RequestContextImpl;
@@ -63,8 +70,8 @@ public:
 
   static NAN_METHOD(Request);
   static NAN_METHOD(Respond);
-  static NAN_METHOD(PushResult);
-  static NAN_METHOD(PopResult);
+  // static NAN_METHOD(PushResult);
+  // static NAN_METHOD(PopResult);
   static NAN_METHOD(QueueAsyncRequest);
   static NAN_METHOD(QueueAsyncResponse);
 
@@ -84,17 +91,21 @@ public:
   ~RequestContextImpl();
 
 // protected:
-  std::string result;
+  // std::string result;
   uv_sem_t lockRequestSem;
-  // uv_sem_t lockResponseSem;
+  uv_loop_t *loop;
+  uv_async_t *lockRequestAsync;
+  uv_sem_t lockResponseSem;
   uv_sem_t requestSem;
   uv_async_t *parentAsync;
   std::map<int, Nan::Persistent<Function>> parentAsyncFns;
   std::deque<std::pair<int, std::string>> parentAsyncQueue;
-  std::deque<std::string> parentResultQueue;
-  Nan::Persistent<Function> parentSyncHandler;
-  std::deque<std::string> parentSyncQueue;
+  // std::deque<std::string> parentResultQueue;
+  // Nan::Persistent<Function> parentSyncHandler;
+  std::deque<std::pair<uintptr_t (*)(unsigned char *), std::vector<unsigned char>>> handlerRequestQueue;
+  std::deque<uintptr_t> handlerResponseQueue;
   std::mutex parentAsyncMutex;
+  std::thread handlerThread;
 };
 
 class RequestContext : public ObjectWrap {
@@ -108,9 +119,10 @@ public:
   static NAN_METHOD(New);
   /* static NAN_METHOD(FromArray);
   static NAN_METHOD(ToArray); */
-  static NAN_METHOD(PushResult);
+  // static NAN_METHOD(PushResult);
   static NAN_METHOD(PopResult);
-  static NAN_METHOD(SetSyncHandler);
+  static NAN_METHOD(MakeThread);
+  // static NAN_METHOD(MakeAsync);
   static NAN_METHOD(PushSyncRequest);
   static NAN_METHOD(GetTopRequestContext);
   static NAN_METHOD(SetTopRequestContext);
@@ -132,8 +144,8 @@ Handle<Object> WorkerNative::Initialize() {
   Nan::SetMethod(proto, "toArray", ToArray);
   Nan::SetMethod(proto, "request", Request);
   Nan::SetMethod(proto, "respond", Respond);
-  Nan::SetMethod(proto, "pushResult", PushResult);
-  Nan::SetMethod(proto, "popResult", PopResult);
+  // Nan::SetMethod(proto, "pushResult", PushResult);
+  // Nan::SetMethod(proto, "popResult", PopResult);
   Nan::SetMethod(proto, "queueAsyncRequest", QueueAsyncRequest);
   Nan::SetMethod(proto, "queueAsyncResponse", QueueAsyncResponse);
 
@@ -328,7 +340,7 @@ NAN_METHOD(WorkerNative::Respond) {
   uv_sem_post(&requestContext->requestSem);
 }
 
-NAN_METHOD(WorkerNative::PushResult) {
+/* NAN_METHOD(WorkerNative::PushResult) {
   WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
   RequestContextImpl *requestContext = vmOne->requestContext;
 
@@ -342,34 +354,30 @@ NAN_METHOD(WorkerNative::PushResult) {
   {
     std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
 
-    requestContext->parentResultQueue.push_back(std::move(result));
+    requestContext->handlerResponseQueue.push_back(std::move(result));
   }
   
-  uv_sem_post(&requestContext->lockRequestSem);
-  // uv_sem_wait(&requestContext->lockResponseSem);
-
-  requestContext->result.clear();
+  uv_sem_post(&requestContext->lockResponseSem);
 }
 
 NAN_METHOD(WorkerNative::PopResult) {
   WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
   RequestContextImpl *requestContext = vmOne->requestContext;
 
-  uv_sem_wait(&requestContext->lockRequestSem);
+  uv_sem_wait(&requestContext->lockResponseSem);
 
   std::string result;
   {
     std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
 
-    result = std::move(requestContext->parentResultQueue.front());
-    requestContext->parentResultQueue.pop_front();
+    result = std::move(requestContext->handlerResponseQueue.front());
+    requestContext->handlerResponseQueue.pop_front();
   }
   
   Local<String> resultValue = JS_STR(result);
-  // uv_sem_post(&requestContext->lockResponseSem);
 
   info.GetReturnValue().Set(resultValue);
-}
+} */
 
 NAN_METHOD(WorkerNative::QueueAsyncRequest) {
   WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
@@ -405,22 +413,27 @@ NAN_METHOD(WorkerNative::QueueAsyncResponse) {
   }
 }
 
-RequestContextImpl::RequestContextImpl(uv_loop_t *loop) {
+RequestContextImpl::RequestContextImpl(uv_loop_t *loop) : loop(loop) {
   uv_sem_init(&lockRequestSem, 0);
-  // uv_sem_init(&lockResponseSem, 0);
+  uv_sem_init(&lockResponseSem, 0);
   uv_sem_init(&requestSem, 0);
 
   parentAsync = new uv_async_t();
   uv_async_init(loop, parentAsync, RunInThread);
   parentAsync->data = this;
+  
+  lockRequestAsync = new uv_async_t();
+  uv_async_init(loop, lockRequestAsync, HandleAsync);
+  lockRequestAsync->data = this;
 }
 
 RequestContextImpl::~RequestContextImpl() {
   uv_sem_destroy(&lockRequestSem);
-  // uv_sem_destroy(&lockResponseSem);
+  uv_sem_destroy(&lockResponseSem);
   uv_sem_destroy(&requestSem);
   
   uv_close((uv_handle_t *)parentAsync, DeleteAsync);
+  uv_close((uv_handle_t *)lockRequestAsync, DeleteAsync);
 }
 
 Handle<Object> RequestContext::Initialize() {
@@ -434,9 +447,10 @@ Handle<Object> RequestContext::Initialize() {
   // prototype
   Local<ObjectTemplate> proto = ctor->PrototypeTemplate();
   // Nan::SetMethod(proto, "toArray", ToArray);
-  Nan::SetMethod(proto, "pushResult", PushResult);
+  // Nan::SetMethod(proto, "pushResult", PushResult);
   Nan::SetMethod(proto, "popResult", PopResult);
-  Nan::SetMethod(proto, "setSyncHandler", SetSyncHandler);
+  Nan::SetMethod(proto, "makeThread", MakeThread);
+  // Nan::SetMethod(proto, "makeAsync", MakeAsync);
   Nan::SetMethod(proto, "pushSyncRequest", PushSyncRequest);
 
   Local<Function> ctorFn = ctor->GetFunction();
@@ -477,7 +491,7 @@ RequestContext::RequestContext(RequestContextImpl *rc) {
 
 RequestContext::~RequestContext() {}
 
-NAN_METHOD(RequestContext::PushResult) {
+/* NAN_METHOD(RequestContext::PushResult) {
   RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
   RequestContextImpl *requestContextImpl = requestContext->requestContext;
   
@@ -491,60 +505,130 @@ NAN_METHOD(RequestContext::PushResult) {
   {
     std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
 
-    requestContextImpl->parentResultQueue.push_back(std::move(result));
+    requestContextImpl->handlerResponseQueue.push_back(std::move(result));
   }
   
   uv_sem_post(&requestContextImpl->lockRequestSem);
-  // uv_sem_wait(&requestContextImpl->lockResponseSem);
-
-  requestContextImpl->result.clear();
-}
+} */
 
 NAN_METHOD(RequestContext::PopResult) {
   RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
   RequestContextImpl *requestContextImpl = requestContext->requestContext;
 
-  uv_sem_wait(&requestContextImpl->lockRequestSem);
+  uv_sem_wait(&requestContextImpl->lockResponseSem);
 
-  std::string result;
+  uintptr_t result;
   {
     std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
 
-    result = std::move(requestContextImpl->parentResultQueue.front());
-    requestContextImpl->parentResultQueue.pop_front();
+    result = requestContextImpl->handlerResponseQueue.front();
+    requestContextImpl->handlerResponseQueue.pop_front();
   }
-  
-  Local<String> resultValue = JS_STR(result);
-  // uv_sem_post(&requestContextImpl->lockResponseSem);
 
-  info.GetReturnValue().Set(resultValue);
-}
-
-NAN_METHOD(RequestContext::SetSyncHandler) {
-  if (info[0]->IsFunction()) {
-    RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
-    Local<Function> localFn = Local<Function>::Cast(info[0]);
-    RequestContextImpl *requestContextImpl = requestContext->requestContext;
-    
-    requestContextImpl->parentSyncHandler.Reset(localFn);
+  if (result) {
+    Local<Array> resultValue = pointerToArray((void *)result);
+    info.GetReturnValue().Set(resultValue);
   } else {
-    Nan::ThrowError("RequestContext::SetSyncHandler: invalid arguments");
+    info.GetReturnValue().Set(Nan::Null());
   }
 }
+
+NAN_METHOD(RequestContext::MakeThread) {
+  RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
+  RequestContextImpl *requestContextImpl = requestContext->requestContext;
+
+  requestContextImpl->handlerThread = std::thread([requestContextImpl]() -> void {
+    for (;;) {
+      uv_sem_wait(&requestContextImpl->lockRequestSem);
+
+      uintptr_t (*handler)(unsigned char *) = nullptr;
+      std::vector<unsigned char> argsBuffer;
+      {
+        std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+
+        auto &front = requestContextImpl->handlerRequestQueue.front();
+        handler = std::move(front.first);
+        argsBuffer = std::move(front.second);
+
+        requestContextImpl->handlerRequestQueue.pop_front();
+      }
+
+      uintptr_t result = handler(argsBuffer.data());
+      {
+        std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+        
+        requestContextImpl->handlerResponseQueue.push_back(result);
+      }
+
+      uv_sem_post(&requestContextImpl->lockResponseSem);
+    }
+  });
+}
+
+void HandleAsync(uv_async_t *handle) {
+  RequestContextImpl *requestContextImpl = (RequestContextImpl *)(((uv_async_t *)handle)->data);
+  
+  uintptr_t (*handler)(unsigned char *) = nullptr;
+  std::vector<unsigned char> argsBuffer;
+  {
+    std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+
+    auto &front = requestContextImpl->handlerRequestQueue.front();
+    handler = std::move(front.first);
+    argsBuffer = std::move(front.second);
+
+    requestContextImpl->handlerRequestQueue.pop_front();
+  }
+
+  uintptr_t result = handler(argsBuffer.data());
+
+  {
+    std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+    
+    requestContextImpl->handlerResponseQueue.push_back(result);
+  }
+
+  uv_sem_post(&requestContextImpl->lockResponseSem);
+}
+/* NAN_METHOD(RequestContext::MakeAsync) {
+  RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
+  RequestContextImpl *requestContextImpl = requestContext->requestContext;
+} */
 
 NAN_METHOD(RequestContext::PushSyncRequest) {
-  if (info[0]->IsString()) {
+  if (info[0]->IsArray() && info[1]->IsUint32Array()) {
     RequestContext *requestContext = ObjectWrap::Unwrap<RequestContext>(info.This());
-    String::Utf8Value utf8Value(info[0]);
-    RequestContextImpl *requestContextImpl = requestContext->requestContext;
+    uintptr_t (*handler)(unsigned char *) = (uintptr_t (*)(unsigned char *))arrayToPointer(Local<Array>::Cast(info[0]));
+    Local<Uint32Array> argsUint32Array = Local<Uint32Array>::Cast(info[1]);
+    Local<ArrayBuffer> argsArrayBuffer = argsUint32Array->Buffer();
     
+    RequestContextImpl *requestContextImpl = requestContext->requestContext;
+
     {
       std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
 
-      requestContextImpl->parentSyncQueue.emplace_back(*utf8Value, utf8Value.length());
+      std::vector<unsigned char> argsVector(argsUint32Array->ByteLength());
+      memcpy(argsVector.data(), (unsigned char*)argsArrayBuffer->GetContents().Data() + argsUint32Array->ByteOffset(), argsVector.size());
+      requestContextImpl->handlerRequestQueue.emplace_back(handler, std::move(argsVector));
     }
-    
-    uv_async_send(requestContextImpl->parentAsync);
+
+    // uv_async_send(requestContextImpl->lockRequestAsync);
+    uv_sem_post(&requestContextImpl->lockRequestSem);
+
+    /* for (;;) {
+      int waitResult = uv_run(requestContextImpl->loop, UV_RUN_NOWAIT);
+      if (waitResult == 0) {
+        break;
+      }
+      
+      {
+        std::lock_guard<std::mutex> lock(requestContextImpl->parentAsyncMutex);
+        
+        if (requestContextImpl->handlerRequestQueue.size() == 0) {
+          break;
+        }
+      }
+    } */
   } else {
     Nan::ThrowError("RequestContext::PushSyncRequest: invalid arguments");
   }
@@ -603,8 +687,8 @@ void RunInThread(uv_async_t *handle) {
 
   std::deque<std::pair<int, std::string>> localParentAsyncQueue;
   std::vector<Local<Function>> localParentAsyncFns;
-  Local<Function> localParentSyncHandlerFn;
-  std::deque<std::string> localParentSyncQueue;
+  // Local<Function> localParentSyncHandlerFn;
+  // std::deque<std::string> localParentSyncQueue;
   {
     std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
 
@@ -620,12 +704,12 @@ void RunInThread(uv_async_t *handle) {
       requestContext->parentAsyncFns.erase(requestKey);
     }
 
-    if (!requestContext->parentSyncHandler.IsEmpty()) {
+    /* if (!requestContext->parentSyncHandler.IsEmpty()) {
       localParentSyncHandlerFn = Nan::New(requestContext->parentSyncHandler);
       
       localParentSyncQueue = std::move(requestContext->parentSyncQueue);
       requestContext->parentSyncQueue.clear();
-    }
+    } */
   }
 
   for (size_t i = 0; i < localParentAsyncQueue.size(); i++) {
@@ -643,7 +727,7 @@ void RunInThread(uv_async_t *handle) {
     asyncResource.MakeCallback(localFn, sizeof(argv)/sizeof(argv[0]), argv);
   }
 
-  for (size_t i = 0; i < localParentSyncQueue.size(); i++) {
+  /* for (size_t i = 0; i < localParentSyncQueue.size(); i++) {
     const std::string &requestString = localParentSyncQueue[i];
 
     Local<Object> asyncObj = Nan::New<Object>();
@@ -653,7 +737,7 @@ void RunInThread(uv_async_t *handle) {
       JS_STR(requestString),
     };
     asyncResource.MakeCallback(localParentSyncHandlerFn, sizeof(argv)/sizeof(argv[0]), argv);
-  }
+  } */
 }
 
 void DeleteAsync(uv_handle_t *handle) {
