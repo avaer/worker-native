@@ -27,9 +27,27 @@ using namespace node;
 #define JS_FLOAT(val) Nan::New<v8::Number>(val)
 #define JS_BOOL(val) Nan::New<v8::Boolean>(val)
 
+#define JS_FUNC(x) (Nan::GetFunction(x).ToLocalChecked())
+#define JS_OBJ(x) (Nan::To<v8::Object>(x).ToLocalChecked())
+#define JS_NUM(x) (Nan::To<double>(x).FromJust())
+#define JS_BOOL(x) (Nan::To<bool>(x).FromJust())
+#define JS_UINT32(x) (Nan::To<unsigned int>(x).FromJust())
+#define JS_INT32(x) (Nan::To<int>(x).FromJust())
+#define JS_ISOLATE() (v8::Isolate::GetCurrent())
+#define JS_CONTEXT() (JS_ISOLATE()->GetCurrentContext())
+#define JS__HAS(x, y) (((x)->Has(JS_CONTEXT(), (y))).FromJust())
+
+#define EXO_ToString(x) (Nan::To<v8::String>(x).ToLocalChecked())
+
+#define UINT32_TO_JS(x) (Nan::New(static_cast<uint32_t>(x)))
+#define INT32_TO_JS(x) (Nan::New(static_cast<int32_t>(x)))
+#define BOOL_TO_JS(x) ((x) ? Nan::True() : Nan::False())
+#define DOUBLE_TO_JS(x) (Nan::New(static_cast<double>(x)))
+#define FLOAT_TO_JS(x) (Nan::New(static_cast<float>(x)))
+
 namespace workernative {
 
-void Init(Handle<Object> exports);
+void Init(Local<Object> exports);
 void RunInThread(uv_async_t *handle);
 void HandleAsync(uv_async_t *handle);
 void DeleteAsync(uv_handle_t *handle);
@@ -40,13 +58,13 @@ class RequestContext;
 Local<Array> pointerToArray(void *ptr) {
   uintptr_t n = (uintptr_t)ptr;
   Local<Array> result = Nan::New<Array>(2);
-  result->Set(0, JS_NUM((uint32_t)(n >> 32)));
-  result->Set(1, JS_NUM((uint32_t)(n & 0xFFFFFFFF)));
+  result->Set(0, DOUBLE_TO_JS((uint32_t)(n >> 32)));
+  result->Set(1, DOUBLE_TO_JS((uint32_t)(n & 0xFFFFFFFF)));
   return result;
 }
 
 void *arrayToPointer(Local<Array> array) {
-  uintptr_t n = ((uintptr_t)array->Get(0)->Uint32Value() << 32) | (uintptr_t)array->Get(1)->Uint32Value();
+  uintptr_t n = ((uintptr_t)JS_UINT32(array->Get(0)) << 32) | (uintptr_t)JS_UINT32(array->Get(1));
   return (void *)n;
 }
 
@@ -57,7 +75,7 @@ thread_local int requestKeys = 0;
 
 class WorkerNative : public ObjectWrap {
 public:
-  static Handle<Object> Initialize();
+  static Local<Object> Initialize();
 // protected:
   static NAN_METHOD(New);
   static NAN_METHOD(FromArray);
@@ -114,7 +132,7 @@ public:
   ~RequestContext();
 
 // protected:
-  static Handle<Object> Initialize();
+  static Local<Object> Initialize();
 // protected:
   static NAN_METHOD(New);
   /* static NAN_METHOD(FromArray);
@@ -131,7 +149,7 @@ public:
   RequestContextImpl *requestContext;
 };
 
-Handle<Object> WorkerNative::Initialize() {
+Local<Object> WorkerNative::Initialize() {
   Nan::EscapableHandleScope scope;
 
   // constructor
@@ -149,7 +167,7 @@ Handle<Object> WorkerNative::Initialize() {
   Nan::SetMethod(proto, "queueAsyncRequest", QueueAsyncRequest);
   Nan::SetMethod(proto, "queueAsyncResponse", QueueAsyncResponse);
 
-  Local<Function> ctorFn = ctor->GetFunction();
+  Local<Function> ctorFn = JS_FUNC(ctor);
   ctorFn->Set(JS_STR("fromArray"), Nan::New<Function>(FromArray));
   ctorFn->Set(JS_STR("dlclose"), Nan::New<Function>(Dlclose));
   ctorFn->Set(JS_STR("getEventLoop"), Nan::New<Function>(GetEventLoop));
@@ -172,8 +190,8 @@ NAN_METHOD(WorkerNative::New) {
   WorkerNative *oldWorkerNative;
   if (info[0]->IsArray()) {
     Local<Array> array = Local<Array>::Cast(info[0]);
-    uint32_t a = array->Get(0)->Uint32Value();
-    uint32_t b = array->Get(1)->Uint32Value();
+    uint32_t a = JS_UINT32(array->Get(0));
+    uint32_t b = JS_UINT32(array->Get(1));
     uintptr_t c = ((uintptr_t)a << 32) | (uintptr_t)b;
     oldWorkerNative = reinterpret_cast<WorkerNative *>(c);
   } else {
@@ -241,7 +259,7 @@ bool WorkerNative::Dlclose(const char *soPath) {
 NAN_METHOD(WorkerNative::Dlclose) {
   if (info[0]->IsString()) {
     Local<String> soPathString = Local<String>::Cast(info[0]);
-    String::Utf8Value soPathUtf8Value(soPathString);
+    Nan::Utf8String soPathUtf8Value(soPathString);
     const char *soPath = *soPathUtf8Value;
     
     if (Dlclose(soPath)) {
@@ -271,14 +289,14 @@ NAN_METHOD(WorkerNative::SetEventLoop) {
 }
 
 NAN_METHOD(WorkerNative::RequireNative) {
-  Local<String> requireNameValue = info[0]->ToString();
-  String::Utf8Value requireNameUtf8(requireNameValue);
+  Local<String> requireNameValue = EXO_ToString(info[0]);
+  Nan::Utf8String requireNameUtf8(requireNameValue);
   std::string requireName(*requireNameUtf8, requireNameUtf8.length());
 
   auto iter = nativeRequires.find(requireName);
   if (iter != nativeRequires.end()) {
     uintptr_t address = iter->second;
-    void (*Init)(Handle<Object> exports) = (void (*)(Handle<Object>))address;
+    void (*Init)(Local<Object> exports) = (void (*)(Local<Object>))address;
 
     Local<Object> exportsObj = Nan::New<Object>();
     Init(exportsObj);
@@ -290,12 +308,12 @@ NAN_METHOD(WorkerNative::RequireNative) {
 
 NAN_METHOD(WorkerNative::SetNativeRequire) {
   if (info[0]->IsString() && info[1]->IsArray()) {
-    Local<String> requireNameValue = info[0]->ToString();
-    String::Utf8Value requireNameUtf8(requireNameValue);
+    Local<String> requireNameValue = EXO_ToString(info[0]);
+    Nan::Utf8String requireNameUtf8(requireNameValue);
     std::string requireName(*requireNameUtf8, requireNameUtf8.length());
 
     Local<Array> requireAddressValue = Local<Array>::Cast(info[1]);
-    uintptr_t requireAddress = ((uint64_t)requireAddressValue->Get(0)->Uint32Value() << 32) | ((uint64_t)requireAddressValue->Get(1)->Uint32Value() & 0xFFFFFFFF);
+    uintptr_t requireAddress = ((uint64_t)JS_UINT32(requireAddressValue->Get(0)) << 32) | ((uint64_t)JS_UINT32(requireAddressValue->Get(1)) & 0xFFFFFFFF);
 
     if (requireAddress) {
       nativeRequires[requireName] = requireAddress;
@@ -347,7 +365,7 @@ NAN_METHOD(WorkerNative::Respond) {
   std::string result;
   if (info[0]->IsString()) {
     Local<String> stringValue = Local<String>::Cast(info[0]);
-    String::Utf8Value utf8Value(stringValue);
+    Nan::Utf8String utf8Value(stringValue);
     result = std::string(*utf8Value, utf8Value.length());
   }
   
@@ -398,8 +416,8 @@ NAN_METHOD(WorkerNative::QueueAsyncResponse) {
   if (info[0]->IsNumber() && info[1]->IsString()) {
     WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
     RequestContextImpl *requestContext = vmOne->requestContext;
-    int requestKey = info[0]->Int32Value();
-    String::Utf8Value utf8Value(info[1]);
+    int requestKey = JS_INT32(info[0]);
+    Nan::Utf8String utf8Value(info[1]);
 
     {
       std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
@@ -436,7 +454,7 @@ RequestContextImpl::~RequestContextImpl() {
   uv_close((uv_handle_t *)lockRequestAsync, DeleteAsync);
 }
 
-Handle<Object> RequestContext::Initialize() {
+Local<Object> RequestContext::Initialize() {
   Nan::EscapableHandleScope scope;
 
   // constructor
@@ -453,7 +471,7 @@ Handle<Object> RequestContext::Initialize() {
   // Nan::SetMethod(proto, "makeAsync", MakeAsync);
   Nan::SetMethod(proto, "pushSyncRequest", PushSyncRequest);
 
-  Local<Function> ctorFn = ctor->GetFunction();
+  Local<Function> ctorFn = JS_FUNC(ctor);
   // ctorFn->Set(JS_STR("fromArray"), Nan::New<Function>(FromArray));
   ctorFn->Set(JS_STR("getTopRequestContext"), Nan::New<Function>(GetTopRequestContext));
   ctorFn->Set(JS_STR("setTopRequestContext"), Nan::New<Function>(SetTopRequestContext));
@@ -467,8 +485,8 @@ NAN_METHOD(RequestContext::New) {
   RequestContextImpl *oldRequestContext;
   if (info[0]->IsArray()) {
     Local<Array> array = Local<Array>::Cast(info[0]);
-    uint32_t a = array->Get(0)->Uint32Value();
-    uint32_t b = array->Get(1)->Uint32Value();
+    uint32_t a = JS_UINT32(array->Get(0));
+    uint32_t b = JS_UINT32(array->Get(1));
     uintptr_t c = ((uintptr_t)a << 32) | (uintptr_t)b;
     oldRequestContext = reinterpret_cast<RequestContextImpl *>(c);
   } else {
@@ -498,7 +516,7 @@ RequestContext::~RequestContext() {}
   std::string result;
   if (info[0]->IsString()) {
     Local<String> stringValue = Local<String>::Cast(info[0]);
-    String::Utf8Value utf8Value(stringValue);
+    Nan::Utf8String utf8Value(stringValue);
     result = std::string(*utf8Value, utf8Value.length());
   }
   
@@ -745,12 +763,12 @@ void DeleteAsync(uv_handle_t *handle) {
   delete async;
 }
 
-void Init(Handle<Object> exports) {
+void Init(Local<Object> exports) {
   exports->Set(JS_STR("WorkerNative"), WorkerNative::Initialize());
   exports->Set(JS_STR("RequestContext"), RequestContext::Initialize());
 }
 
-void RootInit(Handle<Object> exports) {
+void RootInit(Local<Object> exports) {
   Init(exports);
 }
 
