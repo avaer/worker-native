@@ -51,12 +51,14 @@ global.windowEmit = (type, event, transferList) => parentPort.postMessage({
 }, transferList);
 
 const topRequestContext = requestContext.getTopRequestContext();
-topRequestContext.runSyncTop = function(method, argsBuffer) {
-  this.pushSyncRequest(method, argsBuffer);
-  const result = this.popResult();
-  return result;
-};
-global.runSyncTop = topRequestContext.runSyncTop.bind(topRequestContext);
+if (topRequestContext) {
+  topRequestContext.runSyncTop = function(method, argsBuffer) {
+    this.pushSyncRequest(method, argsBuffer);
+    const result = this.popResult();
+    return result;
+  };
+  global.runSyncTop = topRequestContext.runSyncTop.bind(topRequestContext);
+}
 
 global.requireNative = workerNative.requireNative;
 
