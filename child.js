@@ -4,6 +4,7 @@ const fs = require('fs');
 const vm = require('vm');
 const util = require('util');
 const {Worker, workerData, parentPort} = require('worker_threads');
+const {process} = global;
 
 // latch parent WorkerNative
 
@@ -166,6 +167,10 @@ parentPort.on('message', m => {
     }
     default: throw new Error(`invalid method: ${JSON.stringify(m.method)}`);
   }
+});
+parentPort.on('close', () => {
+  window.onexit && window.onexit();
+  process.exit(); // thread exit
 });
 
 // release lock
