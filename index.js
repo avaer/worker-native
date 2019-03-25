@@ -153,36 +153,6 @@ class RequestContext {
   constructor(instance = new nativeRequestContext()) {
     this.instance = instance;
   }
-
-  makeThread(handlers) {
-    this.instance.makeThread(handlers);
-  }
-
-  /* makeAsync(handlers) {
-    this.instance.makeAsync(handlers);
-  } */
-
-  /* setSyncHandler(fn) {
-    console.log('set sync handler', new Error().stack);
-    this.instance.setSyncHandler(s => {
-      try {
-        const m = JSON.parse(s);
-        let result, err;
-        try {
-          result = fn(m);
-        } catch(e) {
-          err = e.stack;
-        }
-        this.instance.pushResult(JSON.stringify({result, err}));
-      } catch(err) {
-        console.warn(err.stack);
-      }
-    });
-  } */
-  
-  pushSyncRequest(method, args) {
-    this.instance.pushSyncRequest(method, args);
-  }
   
   popResult() {
     return this.instance.popResult();
@@ -208,12 +178,6 @@ const vmOne = {
   },
   getEventLoop: nativeWorkerNative.getEventLoop,
   setEventLoop: nativeWorkerNative.setEventLoop,
-  getTopRequestContext() {
-    return _makeRequestContext(nativeRequestContext.getTopRequestContext());
-  },
-  setTopRequestContext(requestContext) {
-    nativeRequestContext.setTopRequestContext(requestContext.instance);
-  },
   setNativeRequire: nativeWorkerNative.setNativeRequire,
   requireNative: nativeWorkerNative.requireNative,
   initFunctionAddress: nativeWorkerNative.initFunctionAddress,

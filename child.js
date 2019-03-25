@@ -50,16 +50,6 @@ global.windowEmit = (type, event, transferList) => parentPort.postMessage({
   event,
 }, transferList);
 
-const topRequestContext = requestContext.getTopRequestContext();
-if (topRequestContext) {
-  topRequestContext.runSyncTop = function(method, argsBuffer) {
-    this.pushSyncRequest(method, argsBuffer);
-    const result = this.popResult();
-    return result;
-  };
-  global.runSyncTop = topRequestContext.runSyncTop.bind(topRequestContext);
-}
-
 global.requireNative = workerNative.requireNative;
 
 let baseUrl = '';
@@ -126,16 +116,6 @@ global.importScripts = importScripts;
 
 parentPort.on('message', m => {
   switch (m.method) {
-    /* case 'runRepl': {
-      let result, err;
-      try {
-        result = util.inspect(eval(m.jsString));
-      } catch(e) {
-        err = e.stack;
-      }
-      v.pushResult(JSON.stringify({result, err}));
-      break;
-    } */
     case 'runRepl': {
       let result, err;
       try {
@@ -144,19 +124,6 @@ parentPort.on('message', m => {
         err = e.stack;
       }
       v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
-      break;
-    }
-    case 'runSync': {
-      let result, err;
-      try {
-        window._ = m.arg;
-        result = eval(m.jsString);
-      } catch(e) {
-        err = e.stack;
-      } finally {
-        window._ = undefined;
-      }
-      v.pushResult(JSON.stringify({result, err}));
       break;
     }
     case 'runAsync': {
