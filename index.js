@@ -131,7 +131,10 @@ class NativeWorker extends EventEmitter {
   }
   
   destroy() {
-    this.worker.terminate();
+    const symbols = Object.getOwnPropertySymbols(this.worker);
+    const publicPortSymbol = symbols.find(s => s.toString() === 'Symbol(kPublicPort)');
+    const publicPort = this.worker[publicPortSymbol];
+    publicPort.close();
   }
 
   get onmessage() {
