@@ -195,7 +195,7 @@ NAN_METHOD(WorkerNative::FromArray) {
 }
 
 bool WorkerNative::Dlclose(const char *soPath) {
-#ifndef LUMIN
+#if !defined(ANDROID) && !defined(LUMIN)
 #ifndef _WIN32
   void *handle = dlopen(soPath, RTLD_LAZY);
 
@@ -531,7 +531,7 @@ void RootInit(Handle<Object> exports) {
 
 }
 
-#ifndef LUMIN
+#if !defined(ANDROID) && !defined(LUMIN)
 NODE_MODULE(NODE_GYP_MODULE_NAME, workernative::RootInit)
 #else
 extern "C" {
