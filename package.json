@@ -1,6 +1,6 @@
 {
   "name": "worker-native",
-  "version": "0.0.35",
+  "version": "0.0.4",
   "description": "Worker native support",
   "main": "index.js",
   "scripts": {
@@ -8,16 +8,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/modulesio/worker-native.git"
+    "url": "git+https://github.com/modulesio/vm-one.git"
   },
   "author": "Avaer Kazmer <a@modules.io>",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/modulesio/worker-native/issues"
+    "url": "https://github.com/modulesio/vm-one/issues"
   },
-  "homepage": "https://github.com/modulesio/worker-native#readme",
+  "homepage": "https://github.com/modulesio/vm-one#readme",
   "dependencies": {
-    "event-loop-native": "0.0.11",
     "nan": "^2.10.0"
   }
 }
