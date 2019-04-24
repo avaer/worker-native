@@ -19,10 +19,6 @@ const {
   return exports;
 })();
 
-const eventLoopNative = require('event-loop-native');
-workerNative.setEventLoop(eventLoopNative);
-workerNative.dlclose(eventLoopNative.getDlibPath());
-
 const v = workerNative.fromArray(workerData.array);
 
 // global initialization

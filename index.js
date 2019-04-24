@@ -12,10 +12,6 @@ const {
 const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
 const childJsPath = path.join(__dirname, 'child.js');
 
-const eventLoopNative = require('event-loop-native');
-nativeWorkerNative.setEventLoop(eventLoopNative);
-nativeWorkerNative.dlclose(eventLoopNative.getDlibPath());
-
 nativeWorkerNative.setNativeRequire('worker_native.node', nativeWorkerNative.initFunctionAddress);
 
 /* let compiling = false;
@@ -180,7 +176,6 @@ const vmOne = {
     return _makeRequestContext();
   },
   getEventLoop: nativeWorkerNative.getEventLoop,
-  setEventLoop: nativeWorkerNative.setEventLoop,
   setNativeRequire: nativeWorkerNative.setNativeRequire,
   requireNative: nativeWorkerNative.requireNative,
   initFunctionAddress: nativeWorkerNative.initFunctionAddress,

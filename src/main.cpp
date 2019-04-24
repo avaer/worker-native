@@ -50,9 +50,12 @@ void *arrayToPointer(Local<Array> array) {
   return (void *)n;
 }
 
+uv_loop_t *getEventLoop() {
+  return node::GetCurrentEventLoop(Isolate::GetCurrent());
+}
+
 std::map<std::string, uintptr_t> nativeRequires;
 RequestContextImpl *topRequestContext = nullptr;
-thread_local uv_loop_t *eventLoop = nullptr;
 thread_local int requestKeys = 0;
 
 class WorkerNative : public ObjectWrap {
@@ -64,7 +67,6 @@ public:
   static NAN_METHOD(ToArray);
   static NAN_METHOD(Dlclose);
   static NAN_METHOD(GetEventLoop);
-  static NAN_METHOD(SetEventLoop);
   static NAN_METHOD(RequireNative);
   static NAN_METHOD(SetNativeRequire);
 
@@ -139,7 +141,6 @@ Handle<Object> WorkerNative::Initialize() {
   ctorFn->Set(JS_STR("fromArray"), Nan::New<Function>(FromArray));
   ctorFn->Set(JS_STR("dlclose"), Nan::New<Function>(Dlclose));
   ctorFn->Set(JS_STR("getEventLoop"), Nan::New<Function>(GetEventLoop));
-  ctorFn->Set(JS_STR("setEventLoop"), Nan::New<Function>(SetEventLoop));
   ctorFn->Set(JS_STR("requireNative"), Nan::New<Function>(RequireNative));
   ctorFn->Set(JS_STR("setNativeRequire"), Nan::New<Function>(SetNativeRequire));
 
@@ -241,19 +242,8 @@ NAN_METHOD(WorkerNative::Dlclose) {
 }
 
 NAN_METHOD(WorkerNative::GetEventLoop) {
-  if (eventLoop) {
-    info.GetReturnValue().Set(pointerToArray(eventLoop));
-  } else {
-    info.GetReturnValue().Set(Nan::Null());
-  }
-}
-
-NAN_METHOD(WorkerNative::SetEventLoop) {
-  if (info[0]->IsArray()) {
-    eventLoop = (uv_loop_t *)arrayToPointer(Local<Array>::Cast(info[0]));
-  } else {
-    Nan::ThrowError("SetEventLoop: invalid arguments");
-  }
+  uv_loop_t *eventLoop = getEventLoop();
+  info.GetReturnValue().Set(pointerToArray(eventLoop));
 }
 
 NAN_METHOD(WorkerNative::RequireNative) {
@@ -295,6 +285,7 @@ NAN_METHOD(WorkerNative::SetNativeRequire) {
 
 WorkerNative::WorkerNative(WorkerNative *ovmo) : requestContext(nullptr), oldWorkerNative(nullptr) {
   if (!ovmo) {
+    uv_loop_t *eventLoop = getEventLoop();
     requestContext = new RequestContextImpl(eventLoop);
   } else {
     /* Local<Context> localContext = Isolate::GetCurrent()->GetCurrentContext();
@@ -426,6 +417,7 @@ RequestContext::RequestContext(RequestContextImpl *rc) {
   if (rc) {
     requestContext = rc;
   } else {
+    uv_loop_t *eventLoop = getEventLoop();
     requestContext = new RequestContextImpl(eventLoop);
   }
 }
