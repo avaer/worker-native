@@ -1,9 +1,22 @@
 const path = require('path');
 const {EventEmitter} = require('events');
 const {Worker} = require('worker_threads');
-const {WorkerNative: nativeVmOne} = require(path.join(__dirname, 'build', 'Release', 'worker_native.node'));
+const vmOnePath = path.join(__dirname, 'build', 'Release', 'worker_native.node');
+const {
+  WorkerNative: nativeWorkerNative,
+  RequestContext: nativeRequestContext,
+} = typeof requireNative === 'undefined' ?
+  require(path.join(__dirname, 'build', 'Release', 'worker_native.node'))
+:
+  requireNative('worker_native.node');
 const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
 const childJsPath = path.join(__dirname, 'child.js');
+
+const eventLoopNative = require('event-loop-native');
+nativeWorkerNative.setEventLoop(eventLoopNative);
+nativeWorkerNative.dlclose(eventLoopNative.getDlibPath());
+
+nativeWorkerNative.setNativeRequire('worker_native.node', nativeWorkerNative.initFunctionAddress);
 
 /* let compiling = false;
 const make = () => new VmOne(e => {
@@ -15,28 +28,41 @@ const make = () => new VmOne(e => {
 }, __dirname + path.sep);
 const isCompiling = () => compiling; */
 
-class Vm extends EventEmitter {
+class NativeWorker extends EventEmitter {
   constructor(options = {}) {
     super();
 
-    const instance = new nativeVmOne();
+    const instance = new nativeWorkerNative();
 
     const worker = new Worker(childJsPath, {
       workerData: {
-        initFunctionAddress: nativeVmOne.initFunctionAddress,
+        initFunctionAddress: nativeWorkerNative.initFunctionAddress,
         array: instance.toArray(),
         initModule: options.initModule,
         args: options.args,
       },
     });
     worker.on('message', m => {
-      this.emit('message', m);
+      switch (m.method) {
+        case 'postMessage': {
+          this.emit('message', m);
+          break;
+        }
+        case 'emit': {
+          this.emit(m.type, m.event);
+          break;
+        }
+        default: {
+          throw new Error(`worker got unknown message type '${m.method}'`);
+          break;
+        }
+      }
     });
     worker.on('error', err => {
       this.emit('error', err);
     });
     instance.request();
-    nativeVmOne.dlclose(vmOne2SoPath); // so we can re-require the module from a different child
+    nativeWorkerNative.dlclose(vmOne2SoPath); // so we can re-require the module from a different child
 
     this.instance = instance;
     this.worker = worker;
@@ -48,39 +74,67 @@ class Vm extends EventEmitter {
       jsString,
       arg,
     }, transferList);
-    return JSON.parse(this.instance.popResult());
+    const {err, result} = JSON.parse(this.instance.popResult());
+    if (!err) {
+      return result;
+    } else {
+      throw new Error(err);
+    }
+  }
+  runRepl(jsString, transferList) {
+    return new Promise((accept, reject) => {
+      const requestKey = this.instance.queueAsyncRequest(s => {
+        const o = JSON.parse(s);
+        if (!o.err) {
+          accept(o.result);
+        } else {
+          reject(o.err);
+        }
+      });
+      this.worker.postMessage({
+        method: 'runRepl',
+        jsString,
+        requestKey,
+      }, transferList);
+    });
   }
   runAsync(jsString, arg, transferList) {
-    let accept = null;
-    let done = false;
-    let result;
-    const requestKey = this.instance.queueAsyncRequest(r => {
-      if (accept) {
-        accept(r);
-      } else {
-        done = true;
-        result = r;
-      }
+    return new Promise((accept, reject) => {
+      const requestKey = this.instance.queueAsyncRequest(s => {
+        const o = JSON.parse(s);
+        if (!o.err) {
+          accept(o.result);
+        } else {
+          reject(o.err);
+        }
+      });
+      this.worker.postMessage({
+        method: 'runAsync',
+        jsString,
+        arg,
+        requestKey,
+      }, transferList);
     });
+  }
+  runDetached(jsString, arg, transferList) {
     this.worker.postMessage({
-      method: 'runAsync',
+      method: 'runDetached',
       jsString,
       arg,
-      requestKey,
     }, transferList);
-    return new Promise((accept2, reject2) => {
-      if (done) {
-        accept2(result);
-      } else {
-        accept = accept2;
-      }
-    });
   }
   postMessage(message, transferList) {
     this.worker.postMessage({
       method: 'postMessage',
       message,
     }, transferList);
+  }
+  
+  destroy() {
+    const symbols = Object.getOwnPropertySymbols(this.worker);
+    const publicPortSymbol = symbols.find(s => s.toString() === 'Symbol(kPublicPort)');
+    const publicPort = this.worker[publicPortSymbol];
+    publicPort.close();
   }
 
   get onmessage() {
@@ -98,16 +152,42 @@ class Vm extends EventEmitter {
   }
 }
 
+class RequestContext {
+  constructor(instance = new nativeRequestContext()) {
+    this.instance = instance;
+  }
+  
+  popResult() {
+    return this.instance.popResult();
+  }
+}
+
+const _makeRequestContext = rc => {
+  const requestContext = new RequestContext(rc);
+  requestContext.runSyncTop = function(method, argsBuffer) {
+    this.pushSyncRequest(method, argsBuffer);
+    const result = this.popResult();
+    return result;
+  };
+  return requestContext;
+};
+
 const vmOne = {
   make(options = {}) {
-    return new Vm(options);
+    return new NativeWorker(options);
   },
-  setNativeRequire: nativeVmOne.setNativeRequire,
-  requireNative: nativeVmOne.requireNative,
-  initFunctionAddress: nativeVmOne.initFunctionAddress,
+  makeRequestContext() {
+    return _makeRequestContext();
+  },
+  getEventLoop: nativeWorkerNative.getEventLoop,
+  setEventLoop: nativeWorkerNative.setEventLoop,
+  setNativeRequire: nativeWorkerNative.setNativeRequire,
+  requireNative: nativeWorkerNative.requireNative,
+  initFunctionAddress: nativeWorkerNative.initFunctionAddress,
   fromArray(arg) {
-    return new nativeVmOne(arg);
+    return new nativeWorkerNative(arg);
   },
+  dlclose: nativeWorkerNative.dlclose,
 }
 
 module.exports = vmOne;

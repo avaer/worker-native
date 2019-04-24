@@ -2,20 +2,28 @@ const {EventEmitter} = require('events');
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
+const util = require('util');
 const {Worker, workerData, parentPort} = require('worker_threads');
+const {process} = global;
 
 // latch parent WorkerNative
 
-const vmOne = (() => {
+const {
+  WorkerNative: workerNative,
+  RequestContext: requestContext,
+}  = (() => {
   const exports = {};
-  const childVmOneSoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
-  const childVmOne = require(childVmOneSoPath);
+  const childVmOne = require(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
   childVmOne.initChild(workerData.initFunctionAddress, exports);
-  delete require.cache[childVmOneSoPath]; // cannot be reused
-
-  return exports.WorkerNative;
+  // delete require.cache[childVmOneSoPath]; // cannot be reused
+  return exports;
 })();
-const v = vmOne.fromArray(workerData.array);
+
+const eventLoopNative = require('event-loop-native');
+workerNative.setEventLoop(eventLoopNative);
+workerNative.dlclose(eventLoopNative.getDlibPath());
+
+const v = workerNative.fromArray(workerData.array);
 
 // global initialization
 
@@ -24,8 +32,26 @@ for (const k in EventEmitter.prototype) {
 }
 EventEmitter.call(global);
 
-global.postMessage = (m, transferList) => parentPort.postMessage(m, transferList);
-global.requireNative = vmOne.requireNative;
+global.postMessage = (message, transferList) => parentPort.postMessage({
+  method: 'postMessage',
+  message,
+}, transferList);
+Object.defineProperty(global, 'onmessage', {
+  get() {
+    return this.listeners('message')[0];
+  },
+  set(onmessage) {
+    global.on('message', onmessage);
+  },
+});
+
+global.windowEmit = (type, event, transferList) => parentPort.postMessage({
+  method: 'emit',
+  type,
+  event,
+}, transferList);
+
+global.requireNative = workerNative.requireNative;
 
 let baseUrl = '';
 function setBaseUrl(newBaseUrl) {
@@ -91,33 +117,44 @@ global.importScripts = importScripts;
 
 parentPort.on('message', m => {
   switch (m.method) {
-    /* case 'lock': {
-      v.pushResult(global);
-      break;
-    } */
-    case 'runSync': {
-      let result;
+    case 'runRepl': {
+      let result, err;
       try {
-        const fn = eval(`(function(arg) { ${m.jsString} })`);
-        const resultValue = fn(m.arg);
-        result = JSON.stringify(resultValue !== undefined ? resultValue : null);
-      } catch(err) {
-        console.warn(err.stack);
+        result = util.inspect(eval(m.jsString));
+      } catch(e) {
+        err = e.stack;
       }
-      console.log('push', result);
-      v.pushResult(result);
+      v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
       break;
     }
     case 'runAsync': {
-      let result;
+      let result, err;
       try {
-        const fn = eval(`(function(arg) { ${m.jsString} })`);
-        const resultValue = fn(m.arg);
-        result = JSON.stringify(resultValue !== undefined ? resultValue : null);
+        result = window.onrunasync ? window.onrunasync(m.jsString) : null;
+      } catch(e) {
+        err = e.stack;
+      } finally {
+        window._ = undefined;
+      }
+      if (!err) {
+        Promise.resolve(result)
+          .then(result => {
+            v.queueAsyncResponse(m.requestKey, JSON.stringify({result}));
+          });
+      } else {
+        v.queueAsyncResponse(m.requestKey, JSON.stringify({err}));
+      }
+      break;
+    }
+    case 'runDetached': {
+      try {
+        window._ = m.arg;
+        eval(m.jsString);
       } catch(err) {
         console.warn(err.stack);
+      } finally {
+        window._ = undefined;
       }
-      v.queueAsyncResponse(m.requestKey, result);
       break;
     }
     case 'postMessage': {
@@ -130,6 +167,10 @@ parentPort.on('message', m => {
     }
     default: throw new Error(`invalid method: ${JSON.stringify(m.method)}`);
   }
+});
+parentPort.on('close', () => {
+  window.onexit && window.onexit();
+  process.exit(); // thread exit
 });
 
 // release lock
