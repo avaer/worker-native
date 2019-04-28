@@ -1,10 +1,9 @@
 const path = require('path');
 const {EventEmitter} = require('events');
 const {Worker} = require('worker_threads');
-const vmOnePath = path.join(__dirname, 'build', 'Release', 'worker_native.node');
 const {
   WorkerNative: nativeWorkerNative,
-  RequestContext: nativeRequestContext,
+  // RequestContext: nativeRequestContext,
 } = typeof requireNative === 'undefined' ?
   require(path.join(__dirname, 'build', 'Release', 'worker_native.node'))
 :
@@ -184,22 +183,9 @@ class RequestContext {
   }
 }
 
-const _makeRequestContext = rc => {
-  const requestContext = new RequestContext(rc);
-  requestContext.runSyncTop = function(method, argsBuffer) {
-    this.pushSyncRequest(method, argsBuffer);
-    const result = this.popResult();
-    return result;
-  };
-  return requestContext;
-};
-
 const vmOne = {
   make(options = {}) {
     return new NativeWorker(options);
-  },
-  makeRequestContext() {
-    return _makeRequestContext();
   },
   getEventLoop: nativeWorkerNative.getEventLoop,
   setNativeRequire: nativeWorkerNative.setNativeRequire,

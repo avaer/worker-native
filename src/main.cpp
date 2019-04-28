@@ -72,8 +72,6 @@ public:
 
   static NAN_METHOD(Request);
   static NAN_METHOD(Respond);
-  static NAN_METHOD(QueueAsyncRequest);
-  static NAN_METHOD(QueueAsyncResponse);
 
   static bool Dlclose(const char *soPath);
   
@@ -92,14 +90,10 @@ public:
 
 // protected:
   // std::string result;
-  uv_sem_t lockRequestSem;
   uv_loop_t *loop;
   // uv_async_t *lockRequestAsync;
   uv_sem_t lockResponseSem;
   uv_sem_t requestSem;
-  uv_async_t *parentAsync;
-  std::map<int, Nan::Persistent<Function>> parentAsyncFns;
-  std::deque<std::pair<int, std::string>> parentAsyncQueue;
   std::deque<uintptr_t> handlerResponseQueue;
   std::mutex parentAsyncMutex;
 };
@@ -134,8 +128,6 @@ Handle<Object> WorkerNative::Initialize() {
   Nan::SetMethod(proto, "toArray", ToArray);
   Nan::SetMethod(proto, "request", Request);
   Nan::SetMethod(proto, "respond", Respond);
-  Nan::SetMethod(proto, "queueAsyncRequest", QueueAsyncRequest);
-  Nan::SetMethod(proto, "queueAsyncResponse", QueueAsyncResponse);
 
   Local<Function> ctorFn = ctor->GetFunction();
   ctorFn->Set(JS_STR("fromArray"), Nan::New<Function>(FromArray));
@@ -317,48 +309,9 @@ NAN_METHOD(WorkerNative::Respond) {
   uv_sem_post(&requestContext->requestSem);
 }
 
-NAN_METHOD(WorkerNative::QueueAsyncRequest) {
-  WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-  RequestContextImpl *requestContext = vmOne->requestContext;
-  Local<Function> localFn = Local<Function>::Cast(info[0]);
-
-  int requestKey = ++requestKeys;
-  {
-    std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
-
-    requestContext->parentAsyncFns.emplace(requestKey, localFn);
-  }
-
-  info.GetReturnValue().Set(JS_INT(requestKey));
-}
-
-NAN_METHOD(WorkerNative::QueueAsyncResponse) {
-  if (info[0]->IsNumber() && info[1]->IsString()) {
-    WorkerNative *vmOne = ObjectWrap::Unwrap<WorkerNative>(info.This());
-    RequestContextImpl *requestContext = vmOne->requestContext;
-    int requestKey = info[0]->Int32Value();
-    String::Utf8Value utf8Value(info[1]);
-
-    {
-      std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
-
-      requestContext->parentAsyncQueue.emplace_back(requestKey, std::string(*utf8Value, utf8Value.length()));
-    }
-
-    uv_async_send(requestContext->parentAsync);
-  } else {
-    Nan::ThrowError("WorkerNative::QueueAsyncResponse: invalid arguments");
-  }
-}
-
 RequestContextImpl::RequestContextImpl(uv_loop_t *loop) : loop(loop) {
-  uv_sem_init(&lockRequestSem, 0);
   uv_sem_init(&lockResponseSem, 0);
   uv_sem_init(&requestSem, 0);
-
-  parentAsync = new uv_async_t();
-  uv_async_init(loop, parentAsync, RunInThread);
-  parentAsync->data = this;
   
   /* lockRequestAsync = new uv_async_t();
   uv_async_init(loop, lockRequestAsync, HandleAsync);
@@ -366,11 +319,9 @@ RequestContextImpl::RequestContextImpl(uv_loop_t *loop) : loop(loop) {
 }
 
 RequestContextImpl::~RequestContextImpl() {
-  uv_sem_destroy(&lockRequestSem);
   uv_sem_destroy(&lockResponseSem);
   uv_sem_destroy(&requestSem);
-  
-  uv_close((uv_handle_t *)parentAsync, DeleteAsync);
+
   // uv_close((uv_handle_t *)lockRequestAsync, DeleteAsync);
 }
 
@@ -467,45 +418,6 @@ NAN_METHOD(RequestContext::FromArray) {
 
   info.GetReturnValue().Set(requestContextObj);
 } */
-
-void RunInThread(uv_async_t *handle) {
-  Nan::HandleScope scope;
-
-  RequestContextImpl *requestContext = (RequestContextImpl *)(((uv_async_t *)handle)->data);
-
-  std::deque<std::pair<int, std::string>> localParentAsyncQueue;
-  std::vector<Local<Function>> localParentAsyncFns;
-  {
-    std::lock_guard<std::mutex> lock(requestContext->parentAsyncMutex);
-
-    localParentAsyncQueue = std::move(requestContext->parentAsyncQueue);
-    requestContext->parentAsyncQueue.clear();
-
-    localParentAsyncFns.reserve(localParentAsyncQueue.size());
-    for (size_t i = 0; i < localParentAsyncQueue.size(); i++) {
-      const int &requestKey = localParentAsyncQueue[i].first;
-      Nan::Persistent<Function> &fn = requestContext->parentAsyncFns[requestKey];
-      localParentAsyncFns.push_back(Nan::New(fn));
-      fn.Reset();
-      requestContext->parentAsyncFns.erase(requestKey);
-    }
-  }
-
-  for (size_t i = 0; i < localParentAsyncQueue.size(); i++) {
-    // Nan::HandleScope scope;
-    
-    Local<Function> &localFn = localParentAsyncFns[i];
-    const std::string &requestResult = localParentAsyncQueue[i].second;
-
-    Local<Object> asyncObj = Nan::New<Object>();
-    AsyncResource asyncResource(Isolate::GetCurrent(), asyncObj, "RequestContextImpl::RunInThread Async");
-
-    Local<Value> argv[] = {
-      JS_STR(requestResult),
-    };
-    asyncResource.MakeCallback(localFn, sizeof(argv)/sizeof(argv[0]), argv);
-  }
-}
 
 void DeleteAsync(uv_handle_t *handle) {
   uv_async_t *async = (uv_async_t *)handle;

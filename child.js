@@ -10,7 +10,6 @@ const {process} = global;
 
 const {
   WorkerNative: workerNative,
-  RequestContext: requestContext,
 }  = (() => {
   const exports = {};
   const childVmOne = require(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
