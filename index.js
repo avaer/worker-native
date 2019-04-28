@@ -40,6 +40,16 @@ class NativeWorker extends EventEmitter {
     });
     worker.on('message', m => {
       switch (m.method) {
+        case 'response': {
+          const fn = this.queue[m.requestKey];
+
+          if (fn) {
+            fn(m.error, m.result);
+          } else {
+            console.warn(`unknown response request key: ${m.requestKey}`);
+          }
+          break;
+        }
         case 'postMessage': {
           this.emit('message', m);
           break;
@@ -65,6 +75,14 @@ class NativeWorker extends EventEmitter {
 
     this.instance = instance;
     this.worker = worker;
+    this.requestKeys = 0;
+    this.queue = {};
+  }
+
+  queueRequest(fn) {
+    const requestKey = this.requestKeys++;
+    this.queue[requestKey] = fn;
+    return requestKey;
   }
 
   runSync(jsString, arg, transferList) {
@@ -82,12 +100,11 @@ class NativeWorker extends EventEmitter {
   }
   runRepl(jsString, transferList) {
     return new Promise((accept, reject) => {
-      const requestKey = this.instance.queueAsyncRequest(s => {
-        const o = JSON.parse(s);
-        if (!o.err) {
-          accept(o.result);
+      const requestKey = this.queueRequest((err, result) => {
+        if (!err) {
+          accept(result);
         } else {
-          reject(o.err);
+          reject(err);
         }
       });
       this.worker.postMessage({
@@ -99,12 +116,11 @@ class NativeWorker extends EventEmitter {
   }
   runAsync(jsString, arg, transferList) {
     return new Promise((accept, reject) => {
-      const requestKey = this.instance.queueAsyncRequest(s => {
-        const o = JSON.parse(s);
-        if (!o.err) {
-          accept(o.result);
+      const requestKey = this.queueRequest((err, result) => {
+        if (!err) {
+          accept(result);
         } else {
-          reject(o.err);
+          reject(err);
         }
       });
       this.worker.postMessage({

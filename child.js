@@ -120,7 +120,12 @@ parentPort.on('message', m => {
       } catch(e) {
         err = e.stack;
       }
-      v.queueAsyncResponse(m.requestKey, JSON.stringify({result, err}));
+      parentPort.postMessage({
+        method: 'response',
+        requestKey: m.requestKey,
+        result,
+        error: err,
+      });
       break;
     }
     case 'runAsync': {
@@ -129,16 +134,22 @@ parentPort.on('message', m => {
         result = window.onrunasync ? window.onrunasync(m.jsString) : null;
       } catch(e) {
         err = e.stack;
-      } finally {
-        window._ = undefined;
       }
       if (!err) {
         Promise.resolve(result)
           .then(result => {
-            v.queueAsyncResponse(m.requestKey, JSON.stringify({result}));
+            parentPort.postMessage({
+              method: 'response',
+              requestKey: m.requestKey,
+              result,
+            });
           });
       } else {
-        v.queueAsyncResponse(m.requestKey, JSON.stringify({err}));
+        parentPort.postMessage({
+          method: 'response',
+          requestKey: m.requestKey,
+          error: err,
+        });
       }
       break;
     }
