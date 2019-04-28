@@ -179,10 +179,6 @@ parentPort.on('close', () => {
   process.exit(); // thread exit
 });
 
-// release lock
-
-v.respond();
-
 // run init module
 
 if (workerData.args) {

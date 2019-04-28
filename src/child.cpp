@@ -46,7 +46,9 @@ void Init(Handle<Object> exports) {
 }
 
 #if !defined(ANDROID) && !defined(LUMIN)
-NODE_MODULE(NODE_GYP_MODULE_NAME, vmone2::Init)
+NODE_MODULE_INIT(/* exports, module, context */) {
+  vmone2::Init(exports);
+}
 #else
 extern "C" {
   void node_register_module_worker_native2(Local<Object> exports, Local<Value> module, Local<Context> context) {

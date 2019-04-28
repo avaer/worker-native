@@ -65,7 +65,7 @@ public:
   static NAN_METHOD(New);
   static NAN_METHOD(FromArray);
   static NAN_METHOD(ToArray);
-  static NAN_METHOD(Dlclose);
+  // static NAN_METHOD(Dlclose);
   static NAN_METHOD(GetEventLoop);
   static NAN_METHOD(RequireNative);
   static NAN_METHOD(SetNativeRequire);
@@ -73,7 +73,7 @@ public:
   static NAN_METHOD(Request);
   static NAN_METHOD(Respond);
 
-  static bool Dlclose(const char *soPath);
+  // static bool Dlclose(const char *soPath);
   
   WorkerNative(WorkerNative *ovmo = nullptr);
   ~WorkerNative();
@@ -131,7 +131,7 @@ Handle<Object> WorkerNative::Initialize() {
 
   Local<Function> ctorFn = ctor->GetFunction();
   ctorFn->Set(JS_STR("fromArray"), Nan::New<Function>(FromArray));
-  ctorFn->Set(JS_STR("dlclose"), Nan::New<Function>(Dlclose));
+  // ctorFn->Set(JS_STR("dlclose"), Nan::New<Function>(Dlclose));
   ctorFn->Set(JS_STR("getEventLoop"), Nan::New<Function>(GetEventLoop));
   ctorFn->Set(JS_STR("requireNative"), Nan::New<Function>(RequireNative));
   ctorFn->Set(JS_STR("setNativeRequire"), Nan::New<Function>(SetNativeRequire));
@@ -187,7 +187,7 @@ NAN_METHOD(WorkerNative::FromArray) {
   info.GetReturnValue().Set(vmOneObj);
 }
 
-bool WorkerNative::Dlclose(const char *soPath) {
+/* bool WorkerNative::Dlclose(const char *soPath) {
 #if !defined(ANDROID) && !defined(LUMIN)
 #ifndef _WIN32
   void *handle = dlopen(soPath, RTLD_LAZY);
@@ -231,7 +231,7 @@ NAN_METHOD(WorkerNative::Dlclose) {
   } else {
     Nan::ThrowError("WorkerNative::Dlclose: invalid arguments");
   }
-}
+} */
 
 NAN_METHOD(WorkerNative::GetEventLoop) {
   uv_loop_t *eventLoop = getEventLoop();
@@ -436,7 +436,9 @@ void RootInit(Handle<Object> exports) {
 }
 
 #if !defined(ANDROID) && !defined(LUMIN)
-NODE_MODULE(NODE_GYP_MODULE_NAME, workernative::RootInit)
+NODE_MODULE_INIT(/* exports, module, context */) {
+  workernative::RootInit(exports);
+}
 #else
 extern "C" {
   void node_register_module_worker_native(Local<Object> exports, Local<Value> module, Local<Context> context) {

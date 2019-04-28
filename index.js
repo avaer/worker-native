@@ -69,8 +69,6 @@ class NativeWorker extends EventEmitter {
     worker.on('exit', () => {
       this.emit('exit');
     });
-    instance.request();
-    nativeWorkerNative.dlclose(vmOne2SoPath); // so we can re-require the module from a different child
 
     this.instance = instance;
     this.worker = worker;
@@ -194,7 +192,7 @@ const vmOne = {
   fromArray(arg) {
     return new nativeWorkerNative(arg);
   },
-  dlclose: nativeWorkerNative.dlclose,
+  // dlclose: nativeWorkerNative.dlclose,
 }
 
 module.exports = vmOne;
