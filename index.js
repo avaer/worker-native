@@ -57,6 +57,9 @@ class NativeWorker extends EventEmitter {
     worker.on('error', err => {
       this.emit('error', err);
     });
+    worker.on('exit', () => {
+      this.emit('exit');
+    });
     instance.request();
     nativeWorkerNative.dlclose(vmOne2SoPath); // so we can re-require the module from a different child
 
@@ -145,6 +148,13 @@ class NativeWorker extends EventEmitter {
   }
   set onerror(onerror) {
     this.on('error', onerror);
+  }
+  
+  get onexit() {
+    return this.listeners('exit')[0];
+  }
+  set onexit(onexit) {
+    this.on('exit', onexit);
   }
 }
 
