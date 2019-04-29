@@ -1,17 +1,12 @@
 const path = require('path');
 const {EventEmitter} = require('events');
 const {Worker} = require('worker_threads');
-const {
+/* const {
   WorkerNative: nativeWorkerNative,
-  // RequestContext: nativeRequestContext,
-} = typeof requireNative === 'undefined' ?
-  require(path.join(__dirname, 'build', 'Release', 'worker_native.node'))
-:
-  requireNative('worker_native.node');
-const vmOne2SoPath = require.resolve(path.join(__dirname, 'build', 'Release', 'worker_native2.node'));
+} = require(path.join(__dirname, 'build', 'Release', 'worker_native.node')); */
 const childJsPath = path.join(__dirname, 'child.js');
 
-nativeWorkerNative.setNativeRequire('worker_native.node', nativeWorkerNative.initFunctionAddress);
+// nativeWorkerNative.setNativeRequire('worker_native.node', nativeWorkerNative.initFunctionAddress);
 
 /* let compiling = false;
 const make = () => new VmOne(e => {
@@ -27,12 +22,12 @@ class NativeWorker extends EventEmitter {
   constructor(options = {}) {
     super();
 
-    const instance = new nativeWorkerNative();
+    //const instance = new nativeWorkerNative();
 
     const worker = new Worker(childJsPath, {
       workerData: {
-        initFunctionAddress: nativeWorkerNative.initFunctionAddress,
-        array: instance.toArray(),
+        // initFunctionAddress: nativeWorkerNative.initFunctionAddress,
+        // array: instance.toArray(),
         initModule: options.initModule,
         args: options.args,
       },
@@ -70,7 +65,7 @@ class NativeWorker extends EventEmitter {
       this.emit('exit');
     });
 
-    this.instance = instance;
+    // this.instance = instance;
     this.worker = worker;
     this.requestKeys = 0;
     this.queue = {};
@@ -82,19 +77,6 @@ class NativeWorker extends EventEmitter {
     return requestKey;
   }
 
-  runSync(jsString, arg, transferList) {
-    this.worker.postMessage({
-      method: 'runSync',
-      jsString,
-      arg,
-    }, transferList);
-    const {err, result} = JSON.parse(this.instance.popResult());
-    if (!err) {
-      return result;
-    } else {
-      throw new Error(err);
-    }
-  }
   runRepl(jsString, transferList) {
     return new Promise((accept, reject) => {
       const requestKey = this.queueRequest((err, result) => {
@@ -127,13 +109,6 @@ class NativeWorker extends EventEmitter {
         requestKey,
       }, transferList);
     });
-  }
-  runDetached(jsString, arg, transferList) {
-    this.worker.postMessage({
-      method: 'runDetached',
-      jsString,
-      arg,
-    }, transferList);
   }
   postMessage(message, transferList) {
     this.worker.postMessage({
@@ -171,28 +146,4 @@ class NativeWorker extends EventEmitter {
   }
 }
 
-class RequestContext {
-  constructor(instance = new nativeRequestContext()) {
-    this.instance = instance;
-  }
-  
-  popResult() {
-    return this.instance.popResult();
-  }
-}
-
-const vmOne = {
-  make(options = {}) {
-    return new NativeWorker(options);
-  },
-  getEventLoop: nativeWorkerNative.getEventLoop,
-  setNativeRequire: nativeWorkerNative.setNativeRequire,
-  requireNative: nativeWorkerNative.requireNative,
-  initFunctionAddress: nativeWorkerNative.initFunctionAddress,
-  fromArray(arg) {
-    return new nativeWorkerNative(arg);
-  },
-  // dlclose: nativeWorkerNative.dlclose,
-}
-
-module.exports = vmOne;
+module.exports = NativeWorker;

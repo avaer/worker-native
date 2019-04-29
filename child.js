@@ -8,7 +8,7 @@ const {process} = global;
 
 // latch parent WorkerNative
 
-const {
+/* const {
   WorkerNative: workerNative,
 }  = (() => {
   const exports = {};
@@ -16,9 +16,9 @@ const {
   childVmOne.initChild(workerData.initFunctionAddress, exports);
   // delete require.cache[childVmOneSoPath]; // cannot be reused
   return exports;
-})();
+})(); */
 
-const v = workerNative.fromArray(workerData.array);
+// const v = workerNative.fromArray(workerData.array);
 
 // global initialization
 
@@ -46,7 +46,7 @@ global.windowEmit = (type, event, transferList) => parentPort.postMessage({
   event,
 }, transferList);
 
-global.requireNative = workerNative.requireNative;
+// global.requireNative = workerNative.requireNative;
 
 let baseUrl = '';
 function setBaseUrl(newBaseUrl) {
@@ -149,17 +149,6 @@ parentPort.on('message', m => {
           requestKey: m.requestKey,
           error: err,
         });
-      }
-      break;
-    }
-    case 'runDetached': {
-      try {
-        window._ = m.arg;
-        eval(m.jsString);
-      } catch(err) {
-        console.warn(err.stack);
-      } finally {
-        window._ = undefined;
       }
       break;
     }
