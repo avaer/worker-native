@@ -1,6 +1,6 @@
 {
   "name": "worker-native",
-  "version": "0.0.41",
+  "version": "0.0.42",
   "description": "Worker native support",
   "main": "index.js",
   "scripts": {
